@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: dp-example
+  name: dp-example-nginx
+  namespace: default
+  resourceVersion: "12045"
+  uid: b705d20f-0c80-4a48-b467-ea61f819337d
+spec:
+  minReadySeconds: 2
+  progressDeadlineSeconds: 600
+  replicas: 2
+  revisionHistoryLimit: 20
+  selector:
+    matchLabels:
+      app: dp-example-ngx
+  strategy:
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 2
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: dp-example-ngx
+    spec:
+      containers:
+      - image: nginx
+        imagePullPolicy: IfNotPresent
+        name: nginx
+        ports:
+        - containerPort: 80
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
