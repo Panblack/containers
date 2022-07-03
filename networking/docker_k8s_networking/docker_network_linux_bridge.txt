@@ -1,0 +1,689 @@
+## use bridge to connect multipile veth device pairs
+
+# 创建network namespace
+ip netns add netns1
+ip netns add netns2
+
+# 创建veth pair
+ip link add veth1-0 type veth peer name veth1-1
+ip link add veth2-0 type veth peer name veth2-1
+
+ip link set dev veth1-0 up
+ip link set dev veth1-1 up
+ip link set dev veth2-0 up
+ip link set dev veth2-1 up
+
+# 将veth peer加入network namespace
+ip link set veth1-1 netns netns1
+ip link set veth2-1 netns netns2
+
+ip netns exec netns1 ip link set dev veth1-1 up
+ip netns exec netns2 ip link set dev veth2-1 up
+
+# veth1-1 <-> veth2-1 only ##
+# 设置veth pair ip地址
+ip netns exec netns1 ip addr add 10.20.30.41/24 dev veth1-1
+ip netns exec netns2 ip addr add 10.20.20.41/24 dev veth2-1
+ip addr add 10.20.30.40/24 dev veth1-0
+ip addr add 10.20.20.40/24 dev veth2-0
+
+# 创建Linux网桥
+brctl addbr br0
+
+# 将veth添加到网桥当中
+brctl addif br0 veth1-0
+brctl addif br0 veth2-0
+
+# 添加默认路由规则
+ip netns exec netns1 ip ro add default dev veth1-1
+ip netns exec netns2 ip ro add default dev veth2-1
+
+# bring up br0
+ip link set dev br0 up
+
+
+# host <-> netns1/2 ##
+# delete veth1-0 and veth2-0's IPs，br0 no IP, add route to netns via br0
+ip addr del 10.20.30.40/24 dev veth1-0
+ip r add 10.20.30.0/24 dev br0
+
+ip addr del 10.20.20.40/24 dev veth2-0
+ip r add 10.20.20.0/24 dev br0
+
+
+# netns to outer world
+# add IP for br0
+# add route for netns via br0's IP
+ip addr add 10.20.30.1/24 dev br0
+ip addr add 10.20.20.1/24 dev br0
+ip netns exec netns1 ip r del default dev veth1-1
+ip netns exec netns2 ip r del default dev veth2-1
+ip netns exec netns1 ip r add default via 10.20.30.1
+ip netns exec netns2 ip r add default via 10.20.20.1
+
+0628
+
+
+
+
+
+
+
+
+
+
+## demo #############
+
+[root@centos7-01 ~]# systemctl status docker|head
+● docker.service - Docker Application Container Engine
+   Loaded: loaded (/usr/lib/systemd/system/docker.service; enabled; vendor preset: disabled)
+   Active: active (running) since Mon 2022-06-27 06:23:43 CST; 10min ago
+     Docs: https://docs.docker.com
+ Main PID: 1016 (dockerd)
+    Tasks: 7
+   Memory: 115.3M
+   CGroup: /system.slice/docker.service
+           └─1016 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+
+[root@centos7-01 ~]# brctl show
+bridge name     bridge id               STP enabled     interfaces
+docker0         8000.0242845d1716       no
+
+
+[root@centos7-01 ~]# ip netns list
+[root@centos7-01 ~]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 100
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group defa
+    link/ether 08:00:27:53:02:5f brd ff:ff:ff:ff:ff:ff
+    inet 192.168.1.166/24 brd 192.168.1.255 scope global noprefixroute enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 2409:8a15:1e13:7ef0:6c1e:568e:81a9:1b58/64 scope global noprefixroute dynamic
+       valid_lft 86389sec preferred_lft 14389sec
+    inet6 fe80::96d9:b36b:6b3c:9c2a/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+3: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN group de
+    link/ether 02:42:84:5d:17:16 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       valid_lft forever preferred_lft forever
+
+
+
+[root@centos7-01 ~]# ip netns add netns1
+[root@centos7-01 ~]# ip netns add netns2
+[root@centos7-01 ~]# ip link add veth1-0 type veth peer name veth1-1
+[root@centos7-01 ~]# ip link add veth2-0 type veth peer name veth2-1
+[root@centos7-01 ~]# ip link set dev veth1-0 up
+[root@centos7-01 ~]# ip link set dev veth1-1 up
+[root@centos7-01 ~]# ip link set dev veth2-0 up
+[root@centos7-01 ~]# ip link set dev veth2-1 up
+
+[root@centos7-01 ~]# ip netns list
+netns2
+netns1
+[root@centos7-01 ~]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:53:02:5f brd ff:ff:ff:ff:ff:ff
+    inet 192.168.1.166/24 brd 192.168.1.255 scope global noprefixroute enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 2409:8a15:1e13:7ef0:6c1e:568e:81a9:1b58/64 scope global noprefixroute dynamic
+       valid_lft 86370sec preferred_lft 14370sec
+    inet6 fe80::96d9:b36b:6b3c:9c2a/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+3: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN group default
+    link/ether 02:42:84:5d:17:16 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       valid_lft forever preferred_lft forever
+4: veth1-1@veth1-0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 06:b1:35:f7:5f:fc brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::4b1:35ff:fef7:5ffc/64 scope link
+       valid_lft forever preferred_lft forever
+5: veth1-0@veth1-1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether fe:eb:35:ca:bf:b0 brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::fceb:35ff:feca:bfb0/64 scope link
+       valid_lft forever preferred_lft forever
+6: veth2-1@veth2-0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 7a:6a:40:d3:6b:6d brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::786a:40ff:fed3:6b6d/64 scope link tentative
+       valid_lft forever preferred_lft forever
+7: veth2-0@veth2-1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 7e:c0:b2:0d:d5:16 brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::7cc0:b2ff:fe0d:d516/64 scope link
+       valid_lft forever preferred_lft forever
+[root@centos7-01 ~]#
+
+
+
+[root@centos7-01 ~]# ip link set veth1-1 netns netns1
+[root@centos7-01 ~]# ip link set veth2-1 netns netns2
+[root@centos7-01 ~]#
+[root@centos7-01 ~]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:53:02:5f brd ff:ff:ff:ff:ff:ff
+    inet 192.168.1.166/24 brd 192.168.1.255 scope global noprefixroute enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 2409:8a15:1e13:7ef0:6c1e:568e:81a9:1b58/64 scope global noprefixroute dynamic
+       valid_lft 86227sec preferred_lft 14227sec
+    inet6 fe80::96d9:b36b:6b3c:9c2a/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+3: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN group default
+    link/ether 02:42:84:5d:17:16 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       valid_lft forever preferred_lft forever
+5: veth1-0@if4: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN group default qlen 1000
+    link/ether fe:eb:35:ca:bf:b0 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet6 fe80::fceb:35ff:feca:bfb0/64 scope link
+       valid_lft forever preferred_lft forever
+7: veth2-0@if6: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN group default qlen 1000
+    link/ether 7e:c0:b2:0d:d5:16 brd ff:ff:ff:ff:ff:ff link-netnsid 1
+    inet6 fe80::7cc0:b2ff:fe0d:d516/64 scope link
+       valid_lft forever preferred_lft forever
+[root@centos7-01 ~]#
+
+
+[root@centos7-01 ~]# ip netns exec netns1 ip a
+1: lo: <LOOPBACK> mtu 65536 qdisc noop state DOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+4: veth1-1@if5: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN group default qlen 1000
+    link/ether 06:b1:35:f7:5f:fc brd ff:ff:ff:ff:ff:ff link-netnsid 0
+[root@centos7-01 ~]#
+[root@centos7-01 ~]# ip netns exec netns2 ip a
+1: lo: <LOOPBACK> mtu 65536 qdisc noop state DOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+6: veth2-1@if7: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN group default qlen 1000
+    link/ether 7a:6a:40:d3:6b:6d brd ff:ff:ff:ff:ff:ff link-netnsid 0
+
+
+
+[root@centos7-01 ~]# ip netns exec netns1 ip link set dev veth1-1 up
+[root@centos7-01 ~]# ip netns exec netns2 ip link set dev veth2-1 up
+[root@centos7-01 ~]#
+[root@centos7-01 ~]# ip netns exec netns1 ip a s veth1-1
+4: veth1-1@if5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 06:b1:35:f7:5f:fc brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet6 fe80::4b1:35ff:fef7:5ffc/64 scope link
+       valid_lft forever preferred_lft forever
+[root@centos7-01 ~]#
+[root@centos7-01 ~]# ip netns exec netns2 ip a s veth2-1
+6: veth2-1@if7: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 7a:6a:40:d3:6b:6d brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet6 fe80::786a:40ff:fed3:6b6d/64 scope link
+       valid_lft forever preferred_lft forever
+[root@centos7-01 ~]#
+
+
+
+
+[root@centos7-01 ~]# ip netns exec netns1 ip addr add 10.20.30.41/24 dev veth1-1
+[root@centos7-01 ~]# ip netns exec netns1 ip addr add 10.20.20.41/24 dev veth2-1
+Cannot find device "veth2-1"
+[root@centos7-01 ~]# ip netns exec netns2 ip addr add 10.20.20.41/24 dev veth2-1
+[root@centos7-01 ~]# ip addr add 10.20.30.40/24 dev veth1-0
+[root@centos7-01 ~]# ip addr add 10.20.20.40/24 dev veth2-0
+[root@centos7-01 ~]#
+[root@centos7-01 ~]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:53:02:5f brd ff:ff:ff:ff:ff:ff
+    inet 192.168.1.166/24 brd 192.168.1.255 scope global noprefixroute enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 2409:8a15:1e13:7ef0:6c1e:568e:81a9:1b58/64 scope global noprefixroute dynamic
+       valid_lft 86267sec preferred_lft 14267sec
+    inet6 fe80::96d9:b36b:6b3c:9c2a/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+3: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN group default
+    link/ether 02:42:84:5d:17:16 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       valid_lft forever preferred_lft forever
+5: veth1-0@if4: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether fe:eb:35:ca:bf:b0 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.20.30.40/24 scope global veth1-0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::fceb:35ff:feca:bfb0/64 scope link
+       valid_lft forever preferred_lft forever
+7: veth2-0@if6: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 7e:c0:b2:0d:d5:16 brd ff:ff:ff:ff:ff:ff link-netnsid 1
+    inet 10.20.20.40/24 scope global veth2-0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::7cc0:b2ff:fe0d:d516/64 scope link
+       valid_lft forever preferred_lft forever
+
+[root@centos7-01 ~]# ip netns exec netns1 ip a s veth1-1
+4: veth1-1@if5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 06:b1:35:f7:5f:fc brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.20.30.41/24 scope global veth1-1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::4b1:35ff:fef7:5ffc/64 scope link
+       valid_lft forever preferred_lft forever
+[root@centos7-01 ~]#
+[root@centos7-01 ~]# ip netns exec netns2 ip a s veth2-1
+6: veth2-1@if7: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 7a:6a:40:d3:6b:6d brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.20.20.41/24 scope global veth2-1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::786a:40ff:fed3:6b6d/64 scope link
+       valid_lft forever preferred_lft forever
+[root@centos7-01 ~]#
+
+
+[root@centos7-01 ~]# brctl addbr br0
+[root@centos7-01 ~]#
+
+[root@centos7-01 ~]# brctl show
+bridge name     bridge id               STP enabled     interfaces
+br0             8000.000000000000       no
+docker0         8000.0242845d1716       no
+
+
+[root@centos7-01 ~]# ip a s br0
+8: br0: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN group default qlen 1000
+    link/ether 56:4d:13:74:43:8f brd ff:ff:ff:ff:ff:ff
+
+
+[root@centos7-01 ~]# brctl addif br0 veth1-0
+[root@centos7-01 ~]# brctl addif br0 veth2-1
+interface veth2-1 does not exist!
+[root@centos7-01 ~]# brctl addif br0 veth2-0
+[root@centos7-01 ~]# brctl show
+bridge name     bridge id               STP enabled     interfaces
+br0             8000.7ec0b20dd516       no              veth1-0
+                                                        veth2-0
+docker0         8000.0242845d1716       no
+[root@centos7-01 ~]#
+
+
+[root@centos7-01 ~]# ip netns exec netns1 ip route add default dev veth1-1
+[root@centos7-01 ~]# ip netns exec netns2 ip route add default dev veth2-1
+
+[root@centos7-01 ~]# ip netns exec netns1 ip r
+default dev veth1-1 scope link
+10.20.30.0/24 dev veth1-1 proto kernel scope link src 10.20.30.41
+
+[root@centos7-01 ~]# ip netns exec netns2 ip r
+default dev veth2-1 scope link
+10.20.20.0/24 dev veth2-1 proto kernel scope link src 10.20.20.41
+
+
+
+#ping test
+[root@centos7-01 ~]# ping -q -c3 -i.2 10.20.30.40
+PING 10.20.30.40 (10.20.30.40) 56(84) bytes of data.
+--- 10.20.30.40 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 400ms
+rtt min/avg/max/mdev = 0.023/0.023/0.024/0.005 ms
+
+[root@centos7-01 ~]# ping -q -c3 -i.2 10.20.20.40
+PING 10.20.20.40 (10.20.20.40) 56(84) bytes of data.
+--- 10.20.20.40 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 400ms
+rtt min/avg/max/mdev = 0.019/0.022/0.025/0.004 ms
+
+#netns localy unreachable
+#netns remotely unreachable
+#netns to host unreachable
+
+
+
+
+#bring up lo in netns1
+#veth1-1 reachable
+#veth1-0 unreachable
+#veth2-1 unreachable
+
+[root@centos7-01 ~]# ip netns exec netns1 bash --rcfile <(echo "PS1='netns1>'")
+netns> ip link set dev lo up
+
+netns1>ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+4: veth1-1@if5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 06:b1:35:f7:5f:fc brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.20.30.41/24 scope global veth1-1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::4b1:35ff:fef7:5ffc/64 scope link
+       valid_lft forever preferred_lft forever
+netns1>
+netns1>
+netns1>ping -c3 -i.2 127.0.0.1
+PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.
+64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.024 ms
+64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=0.024 ms
+64 bytes from 127.0.0.1: icmp_seq=3 ttl=64 time=0.020 ms
+
+--- 127.0.0.1 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 400ms
+rtt min/avg/max/mdev = 0.020/0.022/0.024/0.005 ms
+netns1>ping -c3 -i.2 10.20.30.41
+PING 10.20.30.41 (10.20.30.41) 56(84) bytes of data.
+64 bytes from 10.20.30.41: icmp_seq=1 ttl=64 time=0.020 ms
+64 bytes from 10.20.30.41: icmp_seq=2 ttl=64 time=0.026 ms
+64 bytes from 10.20.30.41: icmp_seq=3 ttl=64 time=0.021 ms
+
+--- 10.20.30.41 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 400ms
+rtt min/avg/max/mdev = 0.020/0.022/0.026/0.004 ms
+netns1>
+
+netns1>ping -c3 -i.2 10.20.30.40
+PING 10.20.30.40 (10.20.30.40) 56(84) bytes of data.
+From 10.20.30.41 icmp_seq=1 Destination Host Unreachable
+From 10.20.30.41 icmp_seq=2 Destination Host Unreachable
+From 10.20.30.41 icmp_seq=3 Destination Host Unreachable
+
+--- 10.20.30.40 ping statistics ---
+3 packets transmitted, 0 received, +3 errors, 100% packet loss, time 410ms
+pipe 3
+
+
+netns1>ping -c3 -i.2 10.20.20.41
+PING 10.20.20.41 (10.20.20.41) 56(84) bytes of data.
+From 10.20.30.41 icmp_seq=1 Destination Host Unreachable
+From 10.20.30.41 icmp_seq=2 Destination Host Unreachable
+From 10.20.30.41 icmp_seq=3 Destination Host Unreachable
+
+--- 10.20.20.41 ping statistics ---
+3 packets transmitted, 0 received, +3 errors, 100% packet loss, time 400ms
+pipe 3
+
+
+
+
+
+#bring up lo in netns2
+#veth2-1 reachable
+#veth2-0 unreachable
+#veth1-1 unreachable
+[root@centos7-01 ~]# ip netns exec netns2 bash --rcfile <(echo "PS1='netns2>'")
+netns2>ip a
+1: lo: <LOOPBACK> mtu 65536 qdisc noop state DOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+6: veth2-1@if7: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 7a:6a:40:d3:6b:6d brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.20.20.41/24 scope global veth2-1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::786a:40ff:fed3:6b6d/64 scope link
+       valid_lft forever preferred_lft forever
+netns2>ip link set dev lo up
+netns2>
+netns2>ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+6: veth2-1@if7: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 7a:6a:40:d3:6b:6d brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.20.20.41/24 scope global veth2-1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::786a:40ff:fed3:6b6d/64 scope link
+       valid_lft forever preferred_lft forever
+netns2>
+netns2>ping -c3 -i.2 127.0.0.1
+PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.
+64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.021 ms
+64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=0.022 ms
+64 bytes from 127.0.0.1: icmp_seq=3 ttl=64 time=0.021 ms
+
+--- 127.0.0.1 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 400ms
+rtt min/avg/max/mdev = 0.021/0.021/0.022/0.003 ms
+netns2>ping -c3 -i.2 10.20.20.41
+PING 10.20.20.41 (10.20.20.41) 56(84) bytes of data.
+64 bytes from 10.20.20.41: icmp_seq=1 ttl=64 time=0.020 ms
+64 bytes from 10.20.20.41: icmp_seq=2 ttl=64 time=0.023 ms
+64 bytes from 10.20.20.41: icmp_seq=3 ttl=64 time=0.024 ms
+
+--- 10.20.20.41 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 400ms
+rtt min/avg/max/mdev = 0.020/0.022/0.024/0.004 ms
+netns2>
+netns2>ping -c3 -i.2 10.20.20.40
+PING 10.20.20.40 (10.20.20.40) 56(84) bytes of data.
+From 10.20.20.41 icmp_seq=1 Destination Host Unreachable
+From 10.20.20.41 icmp_seq=2 Destination Host Unreachable
+From 10.20.20.41 icmp_seq=3 Destination Host Unreachable
+
+--- 10.20.20.40 ping statistics ---
+3 packets transmitted, 0 received, +3 errors, 100% packet loss, time 409ms
+pipe 3
+netns2>ping -c3 -i.2 10.20.30.41
+PING 10.20.30.41 (10.20.30.41) 56(84) bytes of data.
+From 10.20.20.41 icmp_seq=1 Destination Host Unreachable
+From 10.20.20.41 icmp_seq=2 Destination Host Unreachable
+From 10.20.20.41 icmp_seq=3 Destination Host Unreachable
+
+--- 10.20.30.41 ping statistics ---
+3 packets transmitted, 0 received, +3 errors, 100% packet loss, time 400ms
+pipe 3
+netns2>
+
+
+#br0 is down!
+#reachable only between netns after bringing up br0
+[root@centos7-01 ~]# ping -I br0 -c3 -i.2 10.20.20.41
+connect: Network is unreachable
+
+[root@centos7-01 ~]# ip link set dev br0 up
+[root@centos7-01 ~]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:53:02:5f brd ff:ff:ff:ff:ff:ff
+    inet 192.168.1.166/24 brd 192.168.1.255 scope global noprefixroute enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 2409:8a15:1e13:7ef0:6c1e:568e:81a9:1b58/64 scope global noprefixroute dynamic
+       valid_lft 86241sec preferred_lft 14241sec
+    inet6 fe80::96d9:b36b:6b3c:9c2a/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+3: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN group default
+    link/ether 02:42:84:5d:17:16 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       valid_lft forever preferred_lft forever
+5: veth1-0@if4: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br0 state UP group default qlen 1000
+    link/ether fe:eb:35:ca:bf:b0 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.20.30.40/24 scope global veth1-0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::fceb:35ff:feca:bfb0/64 scope link
+       valid_lft forever preferred_lft forever
+7: veth2-0@if6: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br0 state UP group default qlen 1000
+    link/ether 7e:c0:b2:0d:d5:16 brd ff:ff:ff:ff:ff:ff link-netnsid 1
+    inet 10.20.20.40/24 scope global veth2-0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::7cc0:b2ff:fe0d:d516/64 scope link
+       valid_lft forever preferred_lft forever
+8: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 7e:c0:b2:0d:d5:16 brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::7cc0:b2ff:fe0d:d516/64 scope link
+       valid_lft forever preferred_lft forever
+
+
+
+netns1>ip link set dev lo down
+
+netns1>ping -c3 -i.2 10.20.20.41
+PING 10.20.20.41 (10.20.20.41) 56(84) bytes of data.
+64 bytes from 10.20.20.41: icmp_seq=1 ttl=64 time=0.043 ms
+64 bytes from 10.20.20.41: icmp_seq=2 ttl=64 time=0.042 ms
+64 bytes from 10.20.20.41: icmp_seq=3 ttl=64 time=0.037 ms
+
+--- 10.20.20.41 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 400ms
+rtt min/avg/max/mdev = 0.037/0.040/0.043/0.007 ms
+
+
+netns2>ip link set dev lo down
+netns2>
+netns2>ping -c3 -i.2 10.20.30.41
+PING 10.20.30.41 (10.20.30.41) 56(84) bytes of data.
+64 bytes from 10.20.30.41: icmp_seq=1 ttl=64 time=0.044 ms
+64 bytes from 10.20.30.41: icmp_seq=2 ttl=64 time=0.042 ms
+64 bytes from 10.20.30.41: icmp_seq=3 ttl=64 time=0.045 ms
+
+--- 10.20.30.41 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 399ms
+rtt min/avg/max/mdev = 0.042/0.043/0.045/0.007 ms
+
+
+
+#from host to netns, not reachable even from br0
+
+[root@centos7-01 ~]# ping -I br0 -c3 -i.2 10.20.30.41
+ping: Warning: source address might be selected on device other than br0.
+PING 10.20.30.41 (10.20.30.41) from 192.168.1.166 br0: 56(84) bytes of data.
+^C
+--- 10.20.30.41 ping statistics ---
+3 packets transmitted, 0 received, 100% packet loss, time 403ms
+
+[root@centos7-01 ~]# ping -I br0 -c3 -i.2 10.20.20.41
+ping: Warning: source address might be selected on device other than br0.
+PING 10.20.20.41 (10.20.20.41) from 192.168.1.166 br0: 56(84) bytes of data.
+^C
+--- 10.20.20.41 ping statistics ---
+3 packets transmitted, 0 received, 100% packet loss, time 405ms
+
+
+[root@centos7-01 ~]# arp -n
+Address                  HWtype  HWaddress           Flags Mask            Iface
+192.168.1.1              ether   80:3e:48:27:b4:84   C                     enp0s3
+10.20.20.41              ether   d2:30:ef:b0:5c:10   C                     br0
+10.20.30.41              ether   6e:75:14:9e:4a:f6   C                     br0
+10.20.30.41                      (incomplete)                              veth1-0
+192.168.1.156            ether   a8:5e:45:5b:7e:ae   C                     enp0s3
+10.20.20.41                      (incomplete)                              veth2-0
+
+
+arp -d 10.20.30.41
+arp -d 10.20.20.41
+arp -d 10.20.20.41  -i br0
+arp -d 10.20.30.41  -i br0
+
+#delete ip addr from veth1-0
+#add route via br0
+#br0 has no ip addr
+#host netns reachable and vice vesa.
+[root@centos7-01 ~]# ip a s br0
+8: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 26:09:53:c1:6a:04 brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::2409:53ff:fec1:6a04/64 scope link
+       valid_lft forever preferred_lft forever
+
+[root@centos7-01 ~]# ip addr del 10.20.30.40/24 dev veth1-0
+[root@centos7-01 ~]# ip r add 10.20.30.0/24 dev br0
+[root@centos7-01 ~]# ping 10.20.30.41
+PING 10.20.30.41 (10.20.30.41) 56(84) bytes of data.
+64 bytes from 10.20.30.41: icmp_seq=1 ttl=64 time=0.043 ms
+^C
+--- 10.20.30.41 ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 0.043/0.043/0.043/0.000 ms
+
+
+[root@centos7-01 ~]# ip addr del 10.20.20.40/24 dev veth2-0
+[root@centos7-01 ~]# ip r add 10.20.20.0/24 via br0
+Error: inet address is expected rather than "br0".
+[root@centos7-01 ~]# ip r add 10.20.20.0/24 dev br0
+[root@centos7-01 ~]# ping 10.20.20.41
+PING 10.20.20.41 (10.20.20.41) 56(84) bytes of data.
+64 bytes from 10.20.20.41: icmp_seq=1 ttl=64 time=0.047 ms
+64 bytes from 10.20.20.41: icmp_seq=2 ttl=64 time=0.032 ms
+^C
+--- 10.20.20.41 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 999ms
+rtt min/avg/max/mdev = 0.032/0.039/0.047/0.009 ms
+
+[root@centos7-01 ~]# ip netns exec netns1 ping 192.168.1.166
+PING 192.168.1.166 (192.168.1.166) 56(84) bytes of data.
+64 bytes from 192.168.1.166: icmp_seq=1 ttl=64 time=0.038 ms
+64 bytes from 192.168.1.166: icmp_seq=2 ttl=64 time=0.040 ms
+^C
+--- 192.168.1.166 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 0.038/0.039/0.040/0.001 ms
+[root@centos7-01 ~]# ip netns exec netns2 ping 192.168.1.166
+PING 192.168.1.166 (192.168.1.166) 56(84) bytes of data.
+64 bytes from 192.168.1.166: icmp_seq=1 ttl=64 time=0.036 ms
+64 bytes from 192.168.1.166: icmp_seq=2 ttl=64 time=0.031 ms
+^C
+--- 192.168.1.166 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 0.031/0.033/0.036/0.006 ms
+
+
+
+# to the outer world(failed)
+[root@centos7-01 ~]# ip addr add 10.20.30.1/24 dev br0
+[root@centos7-01 ~]# ip addr add 10.20.20.1/24 dev br0
+[root@centos7-01 ~]# ip netns exec netns1 ip r
+default dev veth1-1 scope link
+10.20.30.0/24 dev veth1-1 proto kernel scope link src 10.20.30.41
+[root@centos7-01 ~]# ip netns exec netns1 ip r del default dev veth1-1
+[root@centos7-01 ~]# ip netns exec netns2 ip r del default dev veth2-1
+[root@centos7-01 ~]# ip netns exec netns1 ip r add default via 10.20.30.1
+[root@centos7-01 ~]# ip netns exec netns2 ip r add default via 10.20.20.1
+
+[root@centos7-01 ~]# ip a s br0
+8: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 26:09:53:c1:6a:04 brd ff:ff:ff:ff:ff:ff
+    inet 10.20.30.1/24 scope global br0
+       valid_lft forever preferred_lft forever
+    inet 10.20.20.1/24 scope global br0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::2409:53ff:fec1:6a04/64 scope link
+       valid_lft forever preferred_lft forever
+
+[root@centos7-01 ~]# ip r
+default via 192.168.1.1 dev enp0s3 proto static metric 100
+10.20.20.0/24 dev br0 scope link
+10.20.20.0/24 dev br0 proto kernel scope link src 10.20.20.1
+10.20.30.0/24 dev br0 scope link
+10.20.30.0/24 dev br0 proto kernel scope link src 10.20.30.1
+172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1
+192.168.1.0/24 dev enp0s3 proto kernel scope link src 192.168.1.166 metric 100
+
+
+[root@centos7-01 ~]# ip netns exec netns1 ip r
+default via 10.20.30.1 dev veth1-1
+10.20.30.0/24 dev veth1-1 proto kernel scope link src 10.20.30.41
+
+[root@centos7-01 ~]# ip netns exec netns2 ip r
+default via 10.20.20.1 dev veth2-1
+10.20.20.0/24 dev veth2-1 proto kernel scope link src 10.20.20.41
+[root@centos7-01 ~]#
+
+[root@centos7-01 ~]# ip netns exec netns1 ping 220.181.38.251
+PING 220.181.38.251 (220.181.38.251) 56(84) bytes of data.
+^C
+--- 220.181.38.251 ping statistics ---
+2 packets transmitted, 0 received, 100% packet loss, time 1002ms
+
+
