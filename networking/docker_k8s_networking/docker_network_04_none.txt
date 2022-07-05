@@ -1,0 +1,251 @@
+
+[root@centos7-01 ~]# docker network list
+NETWORK ID     NAME      DRIVER    SCOPE
+693a4ed338be   bridge    bridge    local
+91cfed6fad24   host      host      local
+6698e847f685   none      null      local
+
+[root@centos7-01 ~]# docker run -d --network none --restart=always nginx
+876420beeb8a1701772778eadcb64535f2a12a8641332e701d5980e350098683
+
+[root@centos7-01 ~]# docker ps -a --no-trunc
+CONTAINER ID                                                       IMAGE     COMMAND                                          CREATED          STATUS          PORTS     NAMES
+876420beeb8a1701772778eadcb64535f2a12a8641332e701d5980e350098683   nginx     "/docker-entrypoint.sh nginx -g 'daemon off;'"   28 seconds ago   Up 28 seconds             fervent_carson
+
+[root@centos7-01 ~]# ip link add veth3-0 type veth peer name veth3-1
+[root@centos7-01 ~]# ip link set veth3-0 up
+[root@centos7-01 ~]# ip link set veth3-1 up
+[root@centos7-01 ~]# brctl addif docker0 veth3-0
+[root@centos7-01 ~]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:53:02:5f brd ff:ff:ff:ff:ff:ff
+    inet 192.168.1.166/24 brd 192.168.1.255 scope global noprefixroute enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 2409:8a15:1e1b:4730:ac13:f0af:b8f:54ba/64 scope global noprefixroute dynamic
+       valid_lft 86198sec preferred_lft 14198sec
+    inet6 fe80::96d9:b36b:6b3c:9c2a/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+3: docker0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default
+    link/ether 02:42:af:1d:f6:40 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::42:afff:fe1d:f640/64 scope link
+       valid_lft forever preferred_lft forever
+4: veth3-1@veth3-0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 06:77:72:0a:f4:b6 brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::477:72ff:fe0a:f4b6/64 scope link
+       valid_lft forever preferred_lft forever
+5: veth3-0@veth3-1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master docker0 state UP group default qlen 1000
+    link/ether 6a:85:e8:56:5e:53 brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::6885:e8ff:fe56:5e53/64 scope link
+       valid_lft forever preferred_lft forever
+[root@centos7-01 ~]#
+[root@centos7-01 ~]# brctl show
+bridge name     bridge id               STP enabled     interfaces
+docker0         8000.0242af1df640       no              veth3-0
+[root@centos7-01 ~]#
+
+
+[root@centos7-01 ~]# docker inspect fervent_carson | grep Pid
+            "Pid": 1566,
+            "PidMode": "",
+            "PidsLimit": null,
+[root@centos7-01 ~]#
+[root@centos7-01 ~]#
+[root@centos7-01 ~]# ll /proc/1566/ns/net
+lrwxrwxrwx 1 root root 0 Jul  5 21:23 /proc/1566/ns/net -> net:[4026532125]
+[root@centos7-01 ~]# ll /var/run/netns/
+ls: cannot access /var/run/netns/: No such file or directory
+[root@centos7-01 ~]# ip netns add netns1
+[root@centos7-01 ~]#  /var/run/netns/
+-bash: /var/run/netns/: Is a directory
+[root@centos7-01 ~]# ll /var/run/netns/
+total 0
+-r--r--r-- 1 root root 0 Jul  5 21:28 netns1
+[root@centos7-01 ~]# ln -s /proc/1566/ns/net /var/run/netns/netns_nginx
+
+[root@centos7-01 ~]# ip netns list
+netns_nginx
+netns1
+
+
+[root@centos7-01 ~]# ip link set veth3-1 netns netns_nginx
+[root@centos7-01 ~]# ip netns exec netns_nginx ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+4: veth3-1@if5: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN group default qlen 1000
+    link/ether 06:77:72:0a:f4:b6 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+[root@centos7-01 ~]# ip netns exec netns_nginx ip link set veth3-1 up
+[root@centos7-01 ~]# ip netns exec netns_nginx ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+4: veth3-1@if5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 06:77:72:0a:f4:b6 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+
+
+[root@centos7-01 ~]# ip r
+default via 192.168.1.1 dev enp0s3 proto static metric 100
+172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1
+192.168.1.0/24 dev enp0s3 proto kernel scope link src 192.168.1.166 metric 100
+
+
+
+[root@centos7-01 ~]# ip netns exec netns_nginx ip addr add 172.17.0.101/16 dev veth3-1
+[root@centos7-01 ~]# ip netns exec netns_nginx ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+4: veth3-1@if5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 06:77:72:0a:f4:b6 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 172.17.0.101/16 scope global veth3-1
+       valid_lft forever preferred_lft forever
+
+
+[root@centos7-01 ~]# ip netns exec netns_nginx ip r
+172.17.0.0/16 dev veth3-1 proto kernel scope link src 172.17.0.101
+[root@centos7-01 ~]#
+
+[root@centos7-01 ~]# ip netns exec netns_nginx ip route add default via 172.17.0.1
+[root@centos7-01 ~]# ip netns exec netns_nginx ip r
+default via 172.17.0.1 dev veth3-1
+172.17.0.0/16 dev veth3-1 proto kernel scope link src 172.17.0.101
+
+[root@centos7-01 ~]# ip netns exec netns_nginx ping -c3 -i.2 39.156.66.18
+PING 39.156.66.18 (39.156.66.18) 56(84) bytes of data.
+64 bytes from 39.156.66.18: icmp_seq=1 ttl=52 time=22.6 ms
+64 bytes from 39.156.66.18: icmp_seq=2 ttl=52 time=22.7 ms
+64 bytes from 39.156.66.18: icmp_seq=3 ttl=52 time=23.1 ms
+
+
+[root@centos7-01 ~]# ping -c3 -i.2 172.17.0.101
+PING 172.17.0.101 (172.17.0.101) 56(84) bytes of data.
+64 bytes from 172.17.0.101: icmp_seq=1 ttl=64 time=0.031 ms
+64 bytes from 172.17.0.101: icmp_seq=2 ttl=64 time=0.034 ms
+64 bytes from 172.17.0.101: icmp_seq=3 ttl=64 time=0.034 ms
+
+[root@centos7-01 ~]# nc -vz 172.17.0.101 80
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connected to 172.17.0.101:80.
+Ncat: 0 bytes sent, 0 bytes received in 0.01 seconds.
+
+
+[root@centos7-01 ~]# curl -I  http://172.17.0.101/
+HTTP/1.1 200 OK
+Server: nginx/1.21.5
+Date: Tue, 05 Jul 2022 13:37:47 GMT
+Content-Type: text/html
+Content-Length: 615
+Last-Modified: Tue, 28 Dec 2021 15:28:38 GMT
+Connection: keep-alive
+ETag: "61cb2d26-267"
+Accept-Ranges: bytes
+
+
+
+[root@centos7-01 ~]# docker exec -it fervent_carson /bin/sh
+# ip a
+/bin/sh: 1: ip: not found
+
+# curl -I http://localhost/
+HTTP/1.1 200 OK
+Server: nginx/1.21.5
+Date: Tue, 05 Jul 2022 13:38:48 GMT
+Content-Type: text/html
+Content-Length: 615
+Last-Modified: Tue, 28 Dec 2021 15:28:38 GMT
+Connection: keep-alive
+ETag: "61cb2d26-267"
+Accept-Ranges: bytes
+
+# curl -I http://172.17.0.101/
+HTTP/1.1 200 OK
+Server: nginx/1.21.5
+Date: Tue, 05 Jul 2022 13:38:58 GMT
+Content-Type: text/html
+Content-Length: 615
+Last-Modified: Tue, 28 Dec 2021 15:28:38 GMT
+Connection: keep-alive
+ETag: "61cb2d26-267"
+Accept-Ranges: bytes
+
+# exit
+[root@centos7-01 ~]#
+
+
+[root@centos7-01 ~]# iptables -t nat -I PREROUTING -p tcp --dport 8080 -j DNAT --to 172.17.0.101:80
+
+[root@centos7-01 ~]# iptables -nvL -t nat | grep :8080
+ pkts bytes target     prot opt in     out     source               destination
+    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:172.17.0.101:80
+
+[root@centos7-01 ~]# netstat -lntp
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      960/sshd  
+tcp        0      0 127.0.0.1:25            0.0.0.0:*               LISTEN      1208/master
+tcp6       0      0 :::22                   :::*                    LISTEN      960/sshd  
+tcp6       0      0 ::1:25                  :::*                    LISTEN      1208/master
+
+
+[root@centos7-01 ~]# nc -vz 192.168.1.166 8080
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connection refused.
+
+[root@centos7-01 ~]# curl http://192.168.1.166:8080/
+curl: (7) Failed connect to 192.168.1.166:8080; Connection refused
+
+
+
+
+
+[root@centos7-01 ~]# iptables -t nat -A PREROUTING -i enp0s3 -d 192.168.1.166 -p tcp --dport 8080 -j DNAT --to-destination 172.17.0.101:80
+
+[root@centos7-01 ~]# iptables -t nat -nvL | head -2
+[root@centos7-01 ~]# iptables -t nat -nvL | grep 172.17.0.101:80
+Chain PREROUTING (policy ACCEPT 1 packets, 78 bytes)
+ pkts bytes target     prot opt in     out     source               destination
+     0     0 DNAT       tcp  --  enp0s3 *       0.0.0.0/0            192.168.1.166        tcp dpt:8080 to:172.17.0.101:80
+
+[root@centos7-01 ~]# curl http://192.168.1.166:8080/
+curl: (7) Failed connect to 192.168.1.166:8080; Connection refused
+
+
+[root@centos7-01 ~]# iptables -t nat -I PREROUTING -p tcp --dport 8080 -j DNAT --to 172.17.0.101:80
+
+[root@centos7-01 ~]# iptables -I INPUT -p tcp --dport 8080 -j ACCEPT
+
+[root@centos7-01 ~]# iptables -t nat -nvL | grep 8080
+    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:172.17.0.101:80
+
+[root@centos7-01 ~]# iptables -nvL | grep 8080
+    0     0 ACCEPT     tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8080
+
+[root@centos7-01 ~]# curl http://192.168.1.166:8080/
+curl: (7) Failed connect to 192.168.1.166:8080; Connection refused
+
+[root@centos7-01 ~]# iptables -t nat -A PREROUTING -d 192.168.1.166 -p tcp --dport 8080 -j DNAT --to-destination 172.17.0.101:80
+
+[root@centos7-01 ~]# curl 192.168.1.166:80
+curl: (7) Failed connect to 192.168.1.166:80; Connection refused
+
+
+
+
+
+
+
+
+
+
+

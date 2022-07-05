@@ -1,0 +1,86 @@
+
+
+[root@centos7-01 ~]# docker run -d nginx -p 8080:80
+19d09a81b973f91d4d7a7d89115679559d1a5919acc90d285e9d193ae448d492
+[root@centos7-01 ~]# docker ps
+CONTAINER ID   IMAGE     COMMAND                  CREATED       STATUS         PORTS     NAMES
+876420beeb8a   nginx     "/docker-entrypoint.…"   2 hours ago   Up 5 minutes             fervent_carson
+#port map is gone?!
+
+
+[root@centos7-01 ~]# docker run -d --network bridge -p 8080:80 nginx
+0bcf913a2b4261547bb1191e3b6fdde6fdaa75efb133c1a961b72eb2b97fb387
+[root@centos7-01 ~]# docker ps -a
+CONTAINER ID   IMAGE     COMMAND                  CREATED         STATUS         PORTS                                   NAMES
+0bcf913a2b42   nginx     "/docker-entrypoint.…"   6 seconds ago   Up 5 seconds   0.0.0.0:8080->80/tcp, :::8080->80/tcp   great_robinson
+
+[root@centos7-01 ~]# netstat -lntp|grep 8080
+tcp        0      0 0.0.0.0:8080            0.0.0.0:*               LISTEN      1709/docker-proxy
+tcp6       0      0 :::8080                 :::*                    LISTEN      1713/docker-proxy
+
+[root@centos7-01 ~]# iptables -t nat -nvL | grep 8080
+Chain PREROUTING (policy ACCEPT 3 packets, 184 bytes)
+ pkts bytes target     prot opt in     out     source               destination
+    0     0 DNAT       tcp  --  !docker0 *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:172.17.0.2:80
+
+
+root@centos7-01 ~]# curl -s -I  http://localhost:8080/ | head -1
+HTTP/1.1 200 OK
+
+[root@centos7-01 ~]# docker inspect great_robinson | grep Pid\":
+            "Pid": 1743,
+
+[root@centos7-01 ~]# ll /proc/1743/ns
+total 0
+lrwxrwxrwx 1 root root 0 Jul  5 23:08 ipc -> ipc:[4026532124]
+lrwxrwxrwx 1 root root 0 Jul  5 23:08 mnt -> mnt:[4026532122]
+lrwxrwxrwx 1 root root 0 Jul  5 23:03 net -> net:[4026532127]
+lrwxrwxrwx 1 root root 0 Jul  5 23:08 pid -> pid:[4026532125]
+lrwxrwxrwx 1 root root 0 Jul  5 23:08 user -> user:[4026531837]
+lrwxrwxrwx 1 root root 0 Jul  5 23:08 uts -> uts:[4026532123]
+
+
+# if iptables rules deleted.....
+[root@centos7-01 ~]# iptables -t nat -I DOCKER ! -i docker0 -p tcp --dport 8080 -j DNAT --to 172.17.0.2:80
+[root@centos7-01 ~]# iptables -t nat -nvL | grep 8080
+    0     0 DNAT       tcp  --  !docker0 *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:172.17.0.2:80
+    0     0 DNAT       tcp  --  !docker0 *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:172.17.0.2:80
+
+
+[root@centos7-01 ~]# iptables -t nat -D DOCKER ! -i docker0 -p tcp --dport 8080 -j DNAT --to 172.17.0.2:80
+[root@centos7-01 ~]# iptables -t nat -D DOCKER ! -i docker0 -p tcp --dport 8080 -j DNAT --to 172.17.0.2:80
+[root@centos7-01 ~]# iptables -t nat -D DOCKER ! -i docker0 -p tcp --dport 8080 -j DNAT --to 172.17.0.2:80
+iptables: No chain/target/match by that name.
+
+[root@centos7-01 ~]# netstat -lntp|grep :8080
+tcp        0      0 0.0.0.0:8080            0.0.0.0:*               LISTEN      1709/docker-proxy
+tcp6       0      0 :::8080                 :::*                    LISTEN      1713/docker-proxy
+[root@centos7-01 ~]# curl -s -I http://localhost:8080/ | head -1
+HTTP/1.1 200 OK
+#iptables is not the key condition!
+
+
+#create a new container
+#--network=bridge is default, -p should be put before image name!
+[root@centos7-01 ~]# docker rm great_robinson -f
+great_robinson
+[root@centos7-01 ~]# docker run -d -p 8080:80 nginx
+4c54781040f9cd4fb857cd5bcdfd420c070872cfbf409a45e3f385196fe41a52
+[root@centos7-01 ~]# docker ps
+CONTAINER ID   IMAGE     COMMAND                  CREATED         STATUS         PORTS                                   NAMES
+4c54781040f9   nginx     "/docker-entrypoint.…"   3 seconds ago   Up 2 seconds   0.0.0.0:8080->80/tcp, :::8080->80/tcp   jolly_hellman
+[root@centos7-01 ~]# iptables -t nat -nvL DOCKER
+Chain DOCKER (2 references)
+ pkts bytes target     prot opt in     out     source               destination
+    0     0 RETURN     all  --  docker0 *       0.0.0.0/0            0.0.0.0/0
+    0     0 DNAT       tcp  --  !docker0 *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:172.17.0.2:80
+
+[root@centos7-01 ~]# curl -s -I http://localhost:8080/ | head -1
+HTTP/1.1 200 OK
+
+# Error 'contrack table full' if concurrency is big
+
+
+
+
+

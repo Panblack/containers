@@ -1,0 +1,27 @@
+
+[root@centos7-01 ~]# docker run -d --network=host nginx
+4e99883eb87831512dd17f9f833814c04587793a2488e53c05b83056eecfee2c
+[root@centos7-01 ~]# docker ps -a
+CONTAINER ID   IMAGE     COMMAND                  CREATED          STATUS          PORTS                                   NAMES
+4e99883eb878   nginx     "/docker-entrypoint.…"   4 seconds ago    Up 4 seconds                                            vibrant_heyrovsky
+4c54781040f9   nginx     "/docker-entrypoint.…"   13 minutes ago   Up 13 minutes   0.0.0.0:8080->80/tcp, :::8080->80/tcp   jolly_hellman
+
+[root@centos7-01 ~]# ip netns list
+[root@centos7-01 ~]# netstat -lntp | grep :80
+tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      2095/nginx: master
+tcp        0      0 0.0.0.0:8080            0.0.0.0:*               LISTEN      1961/docker-proxy
+tcp6       0      0 :::80                   :::*                    LISTEN      2095/nginx: master
+tcp6       0      0 :::8080                 :::*                    LISTEN      1965/docker-proxy
+[root@centos7-01 ~]#
+
+[root@centos7-01 ~]# curl -s -I http://localhost/ | head -1
+HTTP/1.1 200 OK
+
+
+[root@centos7-01 ~]# docker inspect vibrant_heyrovsky| grep Pid\":
+            "Pid": 2095,
+[root@centos7-01 ~]# ll /proc/2095/ns/net
+lrwxrwxrwx 1 root root 0 Jul  5 23:29 /proc/2095/ns/net -> net:[4026531956]
+[root@centos7-01 ~]# ll /proc/1/ns/net
+lrwxrwxrwx 1 root root 0 Jul  5 23:29 /proc/1/ns/net -> net:[4026531956]
+
