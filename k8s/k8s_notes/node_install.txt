@@ -12,53 +12,132 @@
 ## Config template VM
 ```
 #sudo
+##ubuntu
 echo "ubuntu  ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/ubuntu
+##rocky8
+echo "rocky  ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/rocky
 
 #sysctl
-echo '
+cat << eof | sudo tee /etc/sysctl.d/20-k8s.conf
 net.ipv4.ip_forward = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.bridge.bridge-nf-call-iptables = 1
 vm.swappiness = 0
-' | sudo tee /etc/sysctl.d/20-k8s.conf
+eof
 
 sudo sysctl --system
 
 #kernel modules
+##ubuntu:
 echo 'br_netfilter' | sudo tee -a /etc/modules 
+##rocky:
+echo -e 'overlay\nbr_netfilter' | sudo tee /etc/modules-load.d/k8s
+sudo modprobe overlay
 sudo modprobe br_netfilter
+	$ lsmod |grep -E 'overlay|netfilter'
+	br_netfilter           24576  0
+	bridge                278528  1 br_netfilter
+	overlay               139264  0
 
-	$ lsmod |grep -E 'netfilter'
-	br_netfilter           28672  0
-	bridge                176128  1 br_netfilter
 
 #swapoff
 sudo swapoff -a
 sudo cp -p /etc/fstab /etc/fstab.bak
 sudo sed -ir 's/.*swap/#&/g' /etc/fstab
 rm -rf /swap.img
-free -tm
+free -th
 
-#turn off autoupgrade
+##rocky8:
+sudo lvremove /dev/rl/swap
+sudo lvextend -r -l +100%FREE /dev/rl/root
+sudo cp /etc/sysconfig/grub ./etc_sysconfig_grub
+sudo vi /etc/sysconfig/grub
+	$ sudo diff ./etc_sysconfig_grub /etc/sysconfig/grub
+	6c6
+	< GRUB_CMDLINE_LINUX="resume=/dev/mapper/rl-swap rd.lvm.lv=rl/root rd.lvm.lv=rl/swap"
+	---
+	> GRUB_CMDLINE_LINUX="rd.lvm.lv=rl/root"
+sudo grub2-mkconfig --output=/boot/grub2/grub.cfg
+sudo reboot
+
+
+#ubuntu: turn off autoupgrade
 sed -i 's/1/0/g' /etc/apt/apt.conf.d/20auto-upgrades
 sed -i 's/1/0/g' /etc/apt/apt.conf.d/10periodic
 
+#rocky: turn off selinux
+sudo sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/sysconfig/selinux
+
+#static ip
+##rocky8:
+$ cat /etc/sysconfig/network-scripts/ifcfg-enp0s3
+TYPE=Ethernet
+PROXY_METHOD=none
+BROWSER_ONLY=no
+BOOTPROTO=none
+DEFROUTE=yes
+IPV4_FAILURE_FATAL=no
+IPV6INIT=yes
+IPV6_AUTOCONF=yes
+IPV6_DEFROUTE=yes
+IPV6_FAILURE_FATAL=no
+NAME=enp0s3
+UUID=a83d333b-7237-488a-ae8e-970fe0fa9b97
+DEVICE=enp0s3
+ONBOOT=yes
+IPADDR=192.168.1.131
+NETMASK=255.255.255.0
+GATEWAY=192.168.1.1
+DNS1=192.168.1.1
+
+
+
 #aliyun k8s repo & install kube*
+##ubuntu:
 curl -s https://mirrors.aliyun.com/kubernetes/apt/doc/apt-key.gpg | sudo apt-key add -
 echo "deb https://mirrors.aliyun.com/kubernetes/apt/ kubernetes-xenial main" >>/etc/apt/sources.list.d/kubernetes.list
 apt-get update
 apt-get install kubelet=1.24.1-00 kubectl=1.24.1-00 kubeadm=1.24.1-00 containerd tree sysstat -y
 echo -e "source <(kubeadm completion bash)\nsource <(kubectl completion bash)\nsource <(crictl completion bash)" >> ~/.profile
 
+##rocky8:
+cat << eof | sudo tee /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64/
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg https://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg
+eof
+
+sudo dnf install epel-release dnf-utils iproute-tc vim wget zip sysstat -y
+sudo yum-config-manager --add-repo http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+sudo dnf makecache
+sudo dnf install containerd
+	Installing:
+	 containerd.io                 
+	Installing dependencies:
+	 checkpolicy                   
+	 container-selinux             
+	 policycoreutils-python-utils  
+	 python3-audit                 
+	 python3-libsemanage           
+	 python3-policycoreutils       
+	 python3-setools               
+
+sudo dnf install kubeadm-1.24.2-0 kubectl-1.24.2-0 kubelet-1.24.2-0
 
 
 #containerd
 sudo mkdir /etc/containerd
-sudo containerd config default > containerd.default.toml
-sudo cp containerd.default.toml /etc/containerd/config.toml
+sudo containerd config default > containerd.default.config.toml
+sudo cp -p /etc/containerd/config.toml containerd.config.toml.rpm
+sudo cp containerd.default.config.toml /etc/containerd/config.toml
 sudo vim /etc/containerd/config.toml
-	
-	ubuntu@k8s-node000:~$ sudo diff /etc/containerd/config.toml containerd.default.toml
+
+	##ubuntu:
+	$ sudo diff /etc/containerd/config.toml containerd.default.config.toml
 	56c56
 	<     sandbox_image = "registry.aliyuncs.com/google_containers/pause:3.7"
 	---
@@ -74,13 +153,53 @@ sudo vim /etc/containerd/config.toml
 	<         [plugins."io.containerd.grpc.v1.cri".registry.mirrors."k8s.gcr.io"]
 	<           endpoint = ["https://registry.aliyuncs.com/google_containers"]
 
+	##rocky8:
+	$ sudo diff /etc/containerd/config.toml containerd.default.config.toml
+	61c61
+	<     sandbox_image = "registry.aliyuncs.com/google_containers/pause:3.6"
+	---
+	>     sandbox_image = "k8s.gcr.io/pause:3.6"
+	125c125
+	<             SystemdCgroup = true
+	---
+	>             SystemdCgroup = false
+	154,157d153
+	<          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+	<            endpoint = ["https://7xsui36w.mirror.aliyuncs.com"]
+	<          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."k8s.gcr.io"]
+	<            endpoint = ["https://registry.aliyuncs.com/google_containers"]
+
+sudo systemctl restart containerd
+sudo systemctl enalbe containerd
+sudo systemctl enable kubelet
+sudo systemctl disable firewalld
+
+#configure crictl
+sudo crictl config --set runtime-endpoint=unix://var/run/containerd/containerd.sock --set image-endpoint=unix://var/run/containerd/containerd.sock
+	$ cat /etc/cir
+	cat: /etc/cir: No such file or directory
+	[rocky@k8s-rocky001 ~]$ cat /etc/crictl.yaml
+	runtime-endpoint: "unix://var/run/containerd/containerd.sock"
+	image-endpoint: "unix://var/run/containerd/containerd.sock"
+	timeout: 0
+	debug: false
+	pull-image-on-create: false
+	disable-pull-on-run: false
+
+source <(kubeadm completion bash)
+source <(kubectl completion bash)
+source <(crictl completion bash)
+
+sudo reboot
+
 
 ```
+
 
 ## Clone VMs
 ```
+##ubuntu:
 sudo hostnamectl set-hostname k8s-node001.lab.example.com
-sudo sed -i 's/120/121/g' /etc/netplan/00-installer-config.yaml
 sudo init 6
 sudo hostnamectl set-hostname k8s-node002.lab.example.com
 sudo sed -i 's/120/122/g' /etc/netplan/00-installer-config.yaml
@@ -94,87 +213,161 @@ sudo init 6
 
 sudo cat /sys/class/dmi/id/product_uuid
 ip a s ens3
+
+##rocky8:
+ls -l /etc/sysconfig/network-scripts/ifcfg-enp0s3
+sed -i 's/192.168.1.131/192.168.1.132/g' /etc/sysconfig/network-scripts/ifcfg-enp0s3
+hostnamectl set-hostname k8s-rocky002.lab.example.com
+
 ```
 
 ## Install cluster
 ```
-sudo kubeadm init --kubernetes-version=v1.24.1 --apiserver-advertise-address=192.168.1.121 --image-repository=registry.aliyuncs.com/google_containers --pod-network-cidr=10.24.0.0/16 --service-cidr=10.9.0.0/16
+#cluster install error!
+$ sudo kubeadm init --dry-run --cri-socket=/var/run/containerd/containerd.sock
 
-[init] Using Kubernetes version: v1.24.1
+$ sudo kubeadm init --cri-socket=/var/run/containerd/containerd.sock
+W0712 23:31:26.345725    1221 initconfiguration.go:120] Usage of CRI endpoints without URL scheme is deprecated and can cause kubelet errors in the future. Automatically prepending scheme "unix" to the "criSocket" with value "/var/run/containerd/containerd.sock". Please update your configuration!
+[init] Using Kubernetes version: v1.24.2
 [preflight] Running pre-flight checks
-[preflight] Pulling images required for setting up a Kubernetes cluster
-[preflight] This might take a minute or two, depending on the speed of your internet connection
-[preflight] You can also perform this action in beforehand using 'kubeadm config images pull'
-[certs] Using certificateDir folder "/etc/kubernetes/pki"
-[certs] Generating "ca" certificate and key
-[certs] Generating "apiserver" certificate and key
-[certs] apiserver serving cert is signed for DNS names [k8s-node001.lab.example.com kubernetes kubernetes.default kubernetes.default.svc kubernetes.default.svc.cluster.local] and IPs [10.9.0.1 192.168.1.121]
-[certs] Generating "apiserver-kubelet-client" certificate and key
-[certs] Generating "front-proxy-ca" certificate and key
-[certs] Generating "front-proxy-client" certificate and key
-[certs] Generating "etcd/ca" certificate and key
-[certs] Generating "etcd/server" certificate and key
-[certs] etcd/server serving cert is signed for DNS names [k8s-node001.lab.example.com localhost] and IPs [192.168.1.121 127.0.0.1 ::1]
-[certs] Generating "etcd/peer" certificate and key
-[certs] etcd/peer serving cert is signed for DNS names [k8s-node001.lab.example.com localhost] and IPs [192.168.1.121 127.0.0.1 ::1]
-[certs] Generating "etcd/healthcheck-client" certificate and key
-[certs] Generating "apiserver-etcd-client" certificate and key
-[certs] Generating "sa" key and public key
-[kubeconfig] Using kubeconfig folder "/etc/kubernetes"
-[kubeconfig] Writing "admin.conf" kubeconfig file
-[kubeconfig] Writing "kubelet.conf" kubeconfig file
-[kubeconfig] Writing "controller-manager.conf" kubeconfig file
-[kubeconfig] Writing "scheduler.conf" kubeconfig file
-[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
-[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
-[kubelet-start] Starting the kubelet
-[control-plane] Using manifest folder "/etc/kubernetes/manifests"
-[control-plane] Creating static Pod manifest for "kube-apiserver"
-[control-plane] Creating static Pod manifest for "kube-controller-manager"
-[control-plane] Creating static Pod manifest for "kube-scheduler"
-[etcd] Creating static Pod manifest for local etcd in "/etc/kubernetes/manifests"
-[wait-control-plane] Waiting for the kubelet to boot up the control plane as static Pods from directory "/etc/kubernetes/manifests". This can take up to 4m0s
-[apiclient] All control plane components are healthy after 19.006919 seconds
-[upload-config] Storing the configuration used in ConfigMap "kubeadm-config" in the "kube-system" Namespace
-[kubelet] Creating a ConfigMap "kubelet-config" in namespace kube-system with the configuration for the kubelets in the cluster
-[upload-certs] Skipping phase. Please see --upload-certs
-[mark-control-plane] Marking the node k8s-node001.lab.example.com as control-plane by adding the labels: [node-role.kubernetes.io/control-plane node.kubernetes.io/exclude-from-external-load-balancers]
-[mark-control-plane] Marking the node k8s-node001.lab.example.com as control-plane by adding the taints [node-role.kubernetes.io/master:NoSchedule node-role.kubernetes.io/control-plane:NoSchedule]
-[bootstrap-token] Using token: m1eoiz.hmwiwwep5n5w8vls
-[bootstrap-token] Configuring bootstrap tokens, cluster-info ConfigMap, RBAC Roles
-[bootstrap-token] Configured RBAC rules to allow Node Bootstrap tokens to get nodes
-[bootstrap-token] Configured RBAC rules to allow Node Bootstrap tokens to post CSRs in order for nodes to get long term certificate credentials
-[bootstrap-token] Configured RBAC rules to allow the csrapprover controller automatically approve CSRs from a Node Bootstrap Token
-[bootstrap-token] Configured RBAC rules to allow certificate rotation for all node client certificates in the cluster
-[bootstrap-token] Creating the "cluster-info" ConfigMap in the "kube-public" namespace
-[kubelet-finalize] Updating "/etc/kubernetes/kubelet.conf" to point to a rotatable kubelet client certificate and key
-[addons] Applied essential addon: CoreDNS
-[addons] Applied essential addon: kube-proxy
+        [WARNING Firewalld]: firewalld is active, please ensure ports [6443 10250] are open or your cluster may not function correctly
+        [WARNING FileExisting-tc]: tc not found in system path
+        [WARNING Service-Kubelet]: kubelet service is not enabled, please run 'systemctl enable kubelet.service'
+error execution phase preflight: [preflight] Some fatal errors occurred:
+        [ERROR FileContent--proc-sys-net-bridge-bridge-nf-call-iptables]: /proc/sys/net/bridge/bridge-nf-call-iptables does not exist
+[preflight] If you know what you are doing, you can make a check non-fatal with `--ignore-preflight-errors=...`
+To see the stack trace of this error execute with --v=5 or higher
+#fix:
+#sudo dnf install iproute-tc
+#sudo systemctl enable kubelet.service
+#sudo systemctl disable firewalld
+#--cri-socket=unix://var/run/containerd/containerd.sock
 
-Your Kubernetes control-plane has initialized successfully!
+$ sudo kubeadm init --cri-socket=unix://var/run/containerd/containerd.sock
+[init] Using Kubernetes version: v1.24.2
+[preflight] Running pre-flight checks
+error execution phase preflight: [preflight] Some fatal errors occurred:
+        [ERROR FileContent--proc-sys-net-bridge-bridge-nf-call-iptables]: /proc/sys/net/bridge/bridge-nf-call-iptables does not exist
+[preflight] If you know what you are doing, you can make a check non-fatal with `--ignore-preflight-errors=...`
+To see the stack trace of this error execute with --v=5 or higher
 
-To start using your cluster, you need to run the following as a regular user:
+$ ls -l /proc/sys/net/bridge/
+ls: cannot access '/proc/sys/net/bridge/': No such file or directory
+#fix:
+#sudo mv /etc/modules /etc/modules-load.d/k8s
 
-  mkdir -p $HOME/.kube
-  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+	$ sudo kubeadm config images pull --image-repository=registry.aliyuncs.com/google_containers
+	[config/images] Pulled registry.aliyuncs.com/google_containers/kube-apiserver:v1.24.2
+	[config/images] Pulled registry.aliyuncs.com/google_containers/kube-controller-manager:v1.24.2
+	[config/images] Pulled registry.aliyuncs.com/google_containers/kube-scheduler:v1.24.2
+	[config/images] Pulled registry.aliyuncs.com/google_containers/kube-proxy:v1.24.2
+	[config/images] Pulled registry.aliyuncs.com/google_containers/pause:3.7
+	[config/images] Pulled registry.aliyuncs.com/google_containers/etcd:3.5.3-0
+	[config/images] Pulled registry.aliyuncs.com/google_containers/coredns:v1.8.6
 
-Alternatively, if you are the root user, you can run:
 
-  export KUBECONFIG=/etc/kubernetes/admin.conf
+sudo kubeadm init --kubernetes-version=v1.24.2 --image-repository=registry.aliyuncs.com/google_containers
 
-You should now deploy a pod network to the cluster.
-Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
-  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+	$ sudo kubeadm init --kubernetes-version=v1.24.2 --image-repository=registry.aliyuncs.com/google_containers
+	[init] Using Kubernetes version: v1.24.2
+	[preflight] Running pre-flight checks
+	[preflight] Pulling images required for setting up a Kubernetes cluster
+	[preflight] This might take a minute or two, depending on the speed of your internet connection
+	[preflight] You can also perform this action in beforehand using 'kubeadm config images pull'
+	[certs] Using certificateDir folder "/etc/kubernetes/pki"
+	[certs] Generating "ca" certificate and key
+	[certs] Generating "apiserver" certificate and key
+	[certs] apiserver serving cert is signed for DNS names [k8s-rocky001.lab.example.com kubernetes kubernetes.default kubernetes.default.svc kubernetes.default.svc.cluster.local] and IPs [10.96.0.1 192.168.1.131]
+	[certs] Generating "apiserver-kubelet-client" certificate and key
+	[certs] Generating "front-proxy-ca" certificate and key
+	[certs] Generating "front-proxy-client" certificate and key
+	[certs] Generating "etcd/ca" certificate and key
+	[certs] Generating "etcd/server" certificate and key
+	[certs] etcd/server serving cert is signed for DNS names [k8s-rocky001.lab.example.com localhost] and IPs [192.168.1.131 127.0.0.1 ::1]
+	[certs] Generating "etcd/peer" certificate and key
+	[certs] etcd/peer serving cert is signed for DNS names [k8s-rocky001.lab.example.com localhost] and IPs [192.168.1.131 127.0.0.1 ::1]
+	[certs] Generating "etcd/healthcheck-client" certificate and key
+	[certs] Generating "apiserver-etcd-client" certificate and key
+	[certs] Generating "sa" key and public key
+	[kubeconfig] Using kubeconfig folder "/etc/kubernetes"
+	[kubeconfig] Writing "admin.conf" kubeconfig file
+	[kubeconfig] Writing "kubelet.conf" kubeconfig file
+	[kubeconfig] Writing "controller-manager.conf" kubeconfig file
+	[kubeconfig] Writing "scheduler.conf" kubeconfig file
+	[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
+	[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
+	[kubelet-start] Starting the kubelet
+	[control-plane] Using manifest folder "/etc/kubernetes/manifests"
+	[control-plane] Creating static Pod manifest for "kube-apiserver"
+	[control-plane] Creating static Pod manifest for "kube-controller-manager"
+	[control-plane] Creating static Pod manifest for "kube-scheduler"
+	[etcd] Creating static Pod manifest for local etcd in "/etc/kubernetes/manifests"
+	[wait-control-plane] Waiting for the kubelet to boot up the control plane as static Pods from directory "/etc/kubernetes/manifests". This can take up to 4m0s
+	[apiclient] All control plane components are healthy after 9.504531 seconds
+	[upload-config] Storing the configuration used in ConfigMap "kubeadm-config" in the "kube-system" Namespace
+	[kubelet] Creating a ConfigMap "kubelet-config" in namespace kube-system with the configuration for the kubelets in the cluster
+	[upload-certs] Skipping phase. Please see --upload-certs
+	[mark-control-plane] Marking the node k8s-rocky001.lab.example.com as control-plane by adding the labels: [node-role.kubernetes.io/control-plane node.kubernetes.io/exclude-from-external-load-balancers]
+	[mark-control-plane] Marking the node k8s-rocky001.lab.example.com as control-plane by adding the taints [node-role.kubernetes.io/master:NoSchedule node-role.kubernetes.io/control-plane:NoSchedule]
+	[bootstrap-token] Using token: 0cmooj.unu290wgetsxdzmk
+	[bootstrap-token] Configuring bootstrap tokens, cluster-info ConfigMap, RBAC Roles
+	[bootstrap-token] Configured RBAC rules to allow Node Bootstrap tokens to get nodes
+	[bootstrap-token] Configured RBAC rules to allow Node Bootstrap tokens to post CSRs in order for nodes to get long term certificate credentials
+	[bootstrap-token] Configured RBAC rules to allow the csrapprover controller automatically approve CSRs from a Node Bootstrap Token
+	[bootstrap-token] Configured RBAC rules to allow certificate rotation for all node client certificates in the cluster
+	[bootstrap-token] Creating the "cluster-info" ConfigMap in the "kube-public" namespace
+	[kubelet-finalize] Updating "/etc/kubernetes/kubelet.conf" to point to a rotatable kubelet client certificate and key
+	[addons] Applied essential addon: CoreDNS
+	[addons] Applied essential addon: kube-proxy
+	
+	Your Kubernetes control-plane has initialized successfully!
+	
+	To start using your cluster, you need to run the following as a regular user:
+	
+	  mkdir -p $HOME/.kube
+	  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+	  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+	
+	Alternatively, if you are the root user, you can run:
+	
+	  export KUBECONFIG=/etc/kubernetes/admin.conf
+	
+	You should now deploy a pod network to the cluster.
+	Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+	  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+	
+	Then you can join any number of worker nodes by running the following on each as root:
+	
+	kubeadm join 192.168.1.131:6443 --token 0cmooj.unu290wgetsxdzmk \
+	        --discovery-token-ca-cert-hash sha256:e147d7069e36ac8e2fbad441d26da352867f7a6ddef4bb9da28586da77826ae5
 
-Then you can join any number of worker nodes by running the following on each as root:
 
-kubeadm join 192.168.1.121:6443 --token m1eoiz.hmwiwwep5n5w8vls \
-        --discovery-token-ca-cert-hash sha256:f8604ec6883373e1f931d33e062df8256de6b7ad08ff15fa8046406d8ae1c877
+```
+
+
+## Add nodes
+```
+sudo kubeadm join 192.168.1.131:6443 --token 0cmooj.unu290wgetsxdzmk \
+                --discovery-token-ca-cert-hash sha256:e147d7069e36ac8e2fbad441d26da352867f7a6ddef4bb9da28586da77826ae5
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 ## cni(calico)
+```
 wget  https://docs.projectcalico.org/manifests/calico.yaml
 grep image.*calico calico.yaml
           image: docker.io/calico/cni:v3.23.1
@@ -183,61 +376,6 @@ grep image.*calico calico.yaml
           image: docker.io/calico/kube-controllers:v3.23.1
 kubectl apply -f calico.yaml
 
-ubuntu@k8s-node001:~$ kubectl get nodes
-NAME                          STATUS   ROLES           AGE   VERSION
-k8s-node001.lab.example.com   Ready    control-plane   10m   v1.24.1
-
-ubuntu@k8s-node001:~$ kubectl get daemonset -A
-NAMESPACE     NAME          DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
-kube-system   calico-node   2         2         1       2            1           kubernetes.io/os=linux   18m
-kube-system   kube-proxy    2         2         1       2            1           kubernetes.io/os=linux   21m
-
-
-ubuntu@k8s-node001:~$ kubectl get deploy -A
-NAMESPACE     NAME                      READY   UP-TO-DATE   AVAILABLE   AGE
-kube-system   calico-kube-controllers   0/1     1            0           17m
-kube-system   coredns                   2/2     2            2           20m
-
-
-ubuntu@k8s-node001:~$ kubectl get pods -A
-NAMESPACE     NAME                                                  READY   STATUS    RESTARTS   AGE
-kube-system   calico-kube-controllers-56cdb7c587-vhglq              0/1     Pending   0          7m36s
-kube-system   calico-node-b6ntj                                     1/1     Running   0          7m36s
-kube-system   coredns-74586cf9b6-7q4fr                              1/1     Running   0          10m
-kube-system   coredns-74586cf9b6-l7xg7                              1/1     Running   0          10m
-kube-system   etcd-k8s-node001.lab.example.com                      1/1     Running   0          10m
-kube-system   kube-apiserver-k8s-node001.lab.example.com            1/1     Running   0          10m
-kube-system   kube-controller-manager-k8s-node001.lab.example.com   1/1     Running   0          10m
-kube-system   kube-proxy-n9p47                                      1/1     Running   0          10m
-kube-system   kube-scheduler-k8s-node001.lab.example.com            1/1     Running   0          10m
-
-ubuntu@k8s-node001:~$ kubectl -n kube-system describe pods calico-kube-controllers-56cdb7c587-vhglq | tail -4
-Events:
-  Type     Reason            Age                    From               Message
-  ----     ------            ----                   ----               -------
-  Warning  FailedScheduling  3m28s (x2 over 8m36s)  default-scheduler  0/1 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
-
-docker.io/calico/kube-controllers:v3.23.1
-
-
-ubuntu@k8s-node001:~$ sudo crictl image ls
-IMAGE                                                             TAG                 IMAGE ID            SIZE
-docker.io/calico/cni                                              v3.23.1             90d97aa939bbf       111MB
-docker.io/calico/node                                             v3.23.1             fbfd04bbb7f47       76.6MB
-registry.aliyuncs.com/google_containers/coredns                   v1.8.6              a4ca41631cc7a       13.6MB
-registry.aliyuncs.com/google_containers/etcd                      3.5.3-0             aebe758cef4cd       102MB
-registry.aliyuncs.com/google_containers/kube-apiserver            v1.24.1             e9f4b425f9192       33.8MB
-registry.aliyuncs.com/google_containers/kube-controller-manager   v1.24.1             b4ea7e648530d       31MB
-registry.aliyuncs.com/google_containers/kube-proxy                v1.24.1             beb86f5d8e6cd       39.5MB
-registry.aliyuncs.com/google_containers/kube-scheduler            v1.24.1             18688a72645c5       15.5MB
-registry.aliyuncs.com/google_containers/pause                     3.7                 221177c6082a8       311kB
-
-
-## Add nodes
-sudo crictl pull docker.io/calico/kube-controllers:v3.23.1
-sudo crictl pull docker.io/calico/cni:v3.23.1
-sudo crictl pull docker.io/calico/node:v3.23.1
-sudo crictl pull registry.aliyuncs.com/google_containers/kube-proxy:v1.24.1
 
 
 #ctr and crictl
@@ -283,36 +421,8 @@ registry.aliyuncs.com/google_containers/kube-proxy   v1.24.1             beb86f5
 registry.aliyuncs.com/google_containers/pause        3.7                 221177c6082a8       311kB
 
 
-#join the cluster
-sudo kubeadm join 192.168.1.121:6443 --discovery-token-ca-cert-hash sha256:f8604ec6883373e1f931d33e062df8256de6b7ad08ff15fa8046406d8ae1c877 --token b2goi3.7p9j1ajwkgcwh8za 
 
-
-
-ubuntu@k8s-node002:~$ sudo kubeadm join 192.168.1.121:6443 --discovery-token-ca-cert-hash sha256:f8604ec6883373e1f931d33e062df8256de6b7ad08ff15fa8046406d8ae1c877 --token m1eoiz.hmwiwwep5n5w8vls
-[preflight] Running pre-flight checks
-[preflight] Reading configuration from the cluster...
-[preflight] FYI: You can look at this config file with 'kubectl -n kube-system get cm kubeadm-config -o yaml'
-[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
-[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
-[kubelet-start] Starting the kubelet
-[kubelet-start] Waiting for the kubelet to perform the TLS Bootstrap...
-
-This node has joined the cluster:
-* Certificate signing request was sent to apiserver and a response was received.
-* The Kubelet was informed of the new secure connection details.
-
-Run 'kubectl get nodes' on the control-plane to see this node join the cluster.
-
-
-ubuntu@k8s-node001:~$ kubectl get node
-NAME                          STATUS     ROLES           AGE     VERSION
-k8s-node001.lab.example.com   Ready      control-plane   24m     v1.24.1
-k8s-node002.lab.example.com   NotReady   <none>          6m27s   v1.24.1
-
-ubuntu@k8s-node001:~$ kubectl get pods -A -o wide|grep node002
-kube-system   calico-node-lp5l5                                     0/1     Init:0/2            0          6m52s   192.168.1.122   k8s-node002.lab.example.com   <none>           <none>
-kube-system   kube-proxy-6277t                                      0/1     ContainerCreating   0          6m52s   192.168.1.122   k8s-node002.lab.example.com   <none>           <none>
-
+```
 
 
 
