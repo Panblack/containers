@@ -1,0 +1,52 @@
+
+## ctr and crictl
+```
+
+ubuntu@k8s-node002:~$ sudo ctr image ls -q
+registry.aliyuncs.com/google_containers/pause:3.7
+ubuntu@k8s-node002:~$
+
+ubuntu@k8s-node002:~$ sudo ctr -n k8s.io image ls -q
+registry.aliyuncs.com/google_containers/kube-proxy:v1.24.1
+registry.aliyuncs.com/google_containers/kube-proxy@sha256:1652df3138207570f52ae0be05cbf26c02648e6a4c30ced3f779fe3d6295ad6d
+registry.aliyuncs.com/google_containers/pause:3.7
+registry.aliyuncs.com/google_containers/pause@sha256:bb6ed397957e9ca7c65ada0db5c5d1c707c9c8afc80a94acbe69f3ae76988f0c
+sha256:221177c6082a88ea4f6240ab2450d540955ac6f4d5454f0e15751b653ebda165
+sha256:beb86f5d8e6cd2234ca24649b74bd10e1e12446764560a3804d85dd6815d0a18
+
+ubuntu@k8s-node002:~$ sudo crictl image ls
+IMAGE                                                TAG                 IMAGE ID            SIZE
+registry.aliyuncs.com/google_containers/kube-proxy   v1.24.1             beb86f5d8e6cd       39.5MB
+registry.aliyuncs.com/google_containers/pause        3.7                 221177c6082a8       311kB
+
+#export crictl images
+sudo ctr -n k8s.io image export calico.cni.v3.23.1.tar docker.io/calico/cni:v3.23.1
+sudo ctr -n k8s.io image export calico.node.v3.23.1.tar docker.io/calico/node:v3.23.1
+sudo ctr -n k8s.io image export calico.kube-controllers.v3.23.1.tar docker.io/calico/kube-controllers:v3.23.1
+sudo ctr -n k8s.io image export kube-proxy.v1.24.1.tar registry.aliyuncs.com/google_containers/kube-proxy:v1.24.1
+sudo ctr -n k8s.io image export pause.3.7.tar registry.aliyuncs.com/google_containers/pause:3.7
+
+#import crictl images
+sudo ctr -n k8s.io image import --base-name docker.io/calico/node:v3.23.1 calico.node.v3.23.1.tar
+sudo ctr -n k8s.io image import --base-name docker.io/calico/cni:v3.23.1  calico.cni.v3.23.1.tar
+sudo ctr -n k8s.io image import --base-name docker.io/calico/kube-controllers:v3.23.1 calico.kube-controllers.v3.23.1.tar
+sudo ctr -n k8s.io image import --base-name kube-proxy.v1.24.1.tar registry.aliyuncs.com/google_containers/kube-proxy:v1.24.1
+sudo ctr -n k8s.io image import --base-name registry.aliyuncs.com/google_containers/pause:3.7 pause.3.7.tar
+
+ubuntu@k8s-node002:~$ sudo ctr -n k8s.io image import --base-name docker.io/calico/node:v3.23.1 calico.node.v3.23.1.tar
+ubuntu@k8s-node002:~$ sudo crictl image ls
+IMAGE                                                TAG                 IMAGE ID            SIZE
+docker.io/calico/cni                                 v3.23.1             90d97aa939bbf       111MB
+docker.io/calico/kube-controllers                    v3.23.1             4d33632489a4d       56.4MB
+docker.io/calico/node                                v3.23.1             fbfd04bbb7f47       76.6MB
+registry.aliyuncs.com/google_containers/kube-proxy   v1.24.1             beb86f5d8e6cd       39.5MB
+registry.aliyuncs.com/google_containers/pause        3.7                 221177c6082a8       311kB
+
+
+
+```
+
+
+
+
+

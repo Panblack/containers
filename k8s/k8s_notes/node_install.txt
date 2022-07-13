@@ -18,9 +18,9 @@
 ## Config template VM
 ```
 #sudo
-##ubuntu
+##ubuntu:
 echo "ubuntu  ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/ubuntu
-##rocky8
+##rocky8:
 echo "rocky  ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/rocky
 
 #sysctl
@@ -36,7 +36,7 @@ sudo sysctl --system
 #kernel modules
 ##ubuntu:
 echo 'br_netfilter' | sudo tee -a /etc/modules 
-##rocky:
+##rocky8:
 echo -e 'overlay\nbr_netfilter' | sudo tee /etc/modules-load.d/k8s
 sudo modprobe overlay
 sudo modprobe br_netfilter
@@ -49,11 +49,13 @@ sudo modprobe br_netfilter
 #swapoff
 sudo swapoff -a
 sudo cp -p /etc/fstab /etc/fstab.bak
+
+##ubuntu:
 sudo sed -ir 's/.*swap/#&/g' /etc/fstab
 rm -rf /swap.img
 free -th
 
-##rocky8:
+##rocky8: disable swap and remove swap lv
 sudo lvremove /dev/rl/swap
 sudo lvextend -r -l +100%FREE /dev/rl/root
 sudo cp /etc/sysconfig/grub ./etc_sysconfig_grub
@@ -71,7 +73,7 @@ sudo reboot
 sed -i 's/1/0/g' /etc/apt/apt.conf.d/20auto-upgrades
 sed -i 's/1/0/g' /etc/apt/apt.conf.d/10periodic
 
-#rocky: turn off selinux
+#rocky8: turn off selinux
 sudo sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/sysconfig/selinux
 
 #static ip
@@ -116,7 +118,6 @@ gpgcheck=1
 repo_gpgcheck=1
 gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg https://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg
 eof
-
 sudo dnf install epel-release dnf-utils iproute-tc vim wget zip sysstat -y
 sudo yum-config-manager --add-repo http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
 sudo dnf makecache
@@ -131,8 +132,8 @@ sudo dnf install containerd
 	 python3-libsemanage           
 	 python3-policycoreutils       
 	 python3-setools               
-
 sudo dnf install kubeadm-1.24.2-0 kubectl-1.24.2-0 kubelet-1.24.2-0
+echo -e "source <(kubeadm completion bash)\nsource <(kubectl completion bash)\nsource <(crictl completion bash)" >> ~/.bashrc
 
 
 #containerd
@@ -175,6 +176,7 @@ sudo vim /etc/containerd/config.toml
 	<          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."k8s.gcr.io"]
 	<            endpoint = ["https://registry.aliyuncs.com/google_containers"]
 
+#rocky8:
 sudo systemctl restart containerd
 sudo systemctl enalbe containerd
 sudo systemctl enable kubelet
@@ -192,13 +194,7 @@ sudo crictl config --set runtime-endpoint=unix://var/run/containerd/containerd.s
 	pull-image-on-create: false
 	disable-pull-on-run: false
 
-source <(kubeadm completion bash)
-source <(kubectl completion bash)
-source <(crictl completion bash)
-
 sudo reboot
-
-
 ```
 
 
@@ -221,17 +217,19 @@ sudo cat /sys/class/dmi/id/product_uuid
 ip a s ens3
 
 ##rocky8:
-ls -l /etc/sysconfig/network-scripts/ifcfg-enp0s3
-sed -i 's/192.168.1.131/192.168.1.132/g' /etc/sysconfig/network-scripts/ifcfg-enp0s3
-hostnamectl set-hostname k8s-rocky002.lab.example.com
+sudo hostnamectl set-hostname k8s-rocky002.lab.example.com
+sudo sed -i 's/192.168.1.131/192.168.1.132/g' /etc/sysconfig/network-scripts/ifcfg-enp0s3
+sudo init 6
+sudo hostnamectl set-hostname k8s-rocky003.lab.example.com
+sudo sed -i 's/192.168.1.131/192.168.1.133/g' /etc/sysconfig/network-scripts/ifcfg-enp0s3
+sudo init 6
 
 ```
 
 ## Install cluster
 ```
-#cluster install error!
+#rocky8: cluster install error!
 $ sudo kubeadm init --dry-run --cri-socket=/var/run/containerd/containerd.sock
-
 $ sudo kubeadm init --cri-socket=/var/run/containerd/containerd.sock
 W0712 23:31:26.345725    1221 initconfiguration.go:120] Usage of CRI endpoints without URL scheme is deprecated and can cause kubelet errors in the future. Automatically prepending scheme "unix" to the "criSocket" with value "/var/run/containerd/containerd.sock". Please update your configuration!
 [init] Using Kubernetes version: v1.24.2
@@ -262,6 +260,8 @@ ls: cannot access '/proc/sys/net/bridge/': No such file or directory
 #fix:
 #sudo mv /etc/modules /etc/modules-load.d/k8s
 
+sudo kubeadm config images pull --image-repository=registry.aliyuncs.com/google_containers
+
 	$ sudo kubeadm config images pull --image-repository=registry.aliyuncs.com/google_containers
 	[config/images] Pulled registry.aliyuncs.com/google_containers/kube-apiserver:v1.24.2
 	[config/images] Pulled registry.aliyuncs.com/google_containers/kube-controller-manager:v1.24.2
@@ -270,7 +270,6 @@ ls: cannot access '/proc/sys/net/bridge/': No such file or directory
 	[config/images] Pulled registry.aliyuncs.com/google_containers/pause:3.7
 	[config/images] Pulled registry.aliyuncs.com/google_containers/etcd:3.5.3-0
 	[config/images] Pulled registry.aliyuncs.com/google_containers/coredns:v1.8.6
-
 
 sudo kubeadm init --kubernetes-version=v1.24.2 --image-repository=registry.aliyuncs.com/google_containers
 
@@ -355,21 +354,7 @@ sudo kubeadm init --kubernetes-version=v1.24.2 --image-repository=registry.aliyu
 ```
 sudo kubeadm join 192.168.1.131:6443 --token 0cmooj.unu290wgetsxdzmk \
                 --discovery-token-ca-cert-hash sha256:e147d7069e36ac8e2fbad441d26da352867f7a6ddef4bb9da28586da77826ae5
-
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 ## cni(calico)
