@@ -1,0 +1,80 @@
+
+## 1st dry run 
+[rocky@k8s-rocky002 ~]$ sudo kubeadm join 192.168.1.131:6443 --dry-run --ignore-preflight-errors=all  --control-plane  --token 6gtfby.37x1n99sj5n79scd  --discovery-token-ca-cert-hash sha256:e147d7069e36ac8e2fbad441d26da352867f7a6ddef4bb9da28586da77826ae5
+[preflight] Running pre-flight checks
+        [WARNING FileAvailable--etc-kubernetes-kubelet.conf]: /etc/kubernetes/kubelet.conf already exists
+        [WARNING Port-10250]: Port 10250 is in use
+[preflight] Reading configuration from the cluster...
+[preflight] FYI: You can look at this config file with 'kubectl -n kube-system get cm kubeadm-config -o yaml'
+error execution phase preflight:
+One or more conditions for hosting a new control plane instance is not satisfied.
+
+unable to add a new control plane instance to a cluster that doesn't have a stable controlPlaneEndpoint address
+
+Please ensure that:
+* The cluster has a stable controlPlaneEndpoint address.
+* The certificates that must be shared among control plane instances are provided.
+
+
+To see the stack trace of this error execute with --v=5 or higher
+##fix
+[rocky@k8s-rocky001 ~]$ diff -y kubeadm-config.yaml kubeadm-config-new.yaml | grep controlPlaneEndpoint -C2
+    clusterName: kubernetes                                         clusterName: kubernetes
+    controllerManager: {}                                           controllerManager: {}
+                                                              >     controlPlaneEndpoint: 192.168.1.131:6443
+    dns: {}                                                         dns: {}
+    etcd:                                                           etcd:
+
+
+## 2nd dry run
+[rocky@k8s-rocky002 ~]$ sudo kubeadm join 192.168.1.131:6443 --dry-run --ignore-preflight-errors=all  --control-plane  --token 6gtfby.37x1n99sj5n79scd  --discovery-token-ca-cert-hash sha256:e147d7069e36ac8e2fbad441d26da352867f7a6ddef4bb9da28586da77826ae5
+[preflight] Running pre-flight checks
+        [WARNING FileAvailable--etc-kubernetes-kubelet.conf]: /etc/kubernetes/kubelet.conf already exists
+        [WARNING Port-10250]: Port 10250 is in use
+[preflight] Reading configuration from the cluster...
+[preflight] FYI: You can look at this config file with 'kubectl -n kube-system get cm kubeadm-config -o yaml'
+W0720 21:10:23.236570   15125 certs.go:442] assuming external key for CA: couldn't load the private key file /etc/kubernetes/pki/ca.key: open /etc/kubernetes/pki/ca.key: no such file or directory
+error execution phase preflight:
+One or more conditions for hosting a new control plane instance is not satisfied.
+
+[failure loading key for service account: couldn't load the private key file /etc/kubernetes/pki/sa.key: open /etc/kubernetes/pki/sa.key: no such file or directory, failure loading certificate for front-proxy CA: couldn't load the certificate file /etc/kubernetes/pki/front-proxy-ca.crt: open /etc/kubernetes/pki/front-proxy-ca.crt: no such file or directory, failure loading certificate for etcd CA: couldn't load the certificate file /etc/kubernetes/pki/etcd/ca.crt: open /etc/kubernetes/pki/etcd/ca.crt: no such file or directory]
+
+Please ensure that:
+* The cluster has a stable controlPlaneEndpoint address.
+* The certificates that must be shared among control plane instances are provided.
+
+
+To see the stack trace of this error execute with --v=5 or higher
+##fix
+[root@k8s-rocky001 ~]# scp -rp /etc/kubernetes/pki/ root@k8s-rocky002:/etc/kubernetes/
+
+
+## 3rd dry run
+[rocky@k8s-rocky002 ~]$ sudo kubeadm join 192.168.1.131:6443 --dry-run --ignore-preflight-errors=all  --control-plane  --token 6gtfby.37x1n99sj5n79scd  --discovery-token-ca-cert-hash sha256:e147d7069e36ac8e2fbad441d26da352867f7a6ddef4bb9da28586da77826ae5
+[preflight] Running pre-flight checks
+        [WARNING FileAvailable--etc-kubernetes-kubelet.conf]: /etc/kubernetes/kubelet.conf already exists
+        [WARNING Port-10250]: Port 10250 is in use
+[preflight] Reading configuration from the cluster...
+[preflight] FYI: You can look at this config file with 'kubectl -n kube-system get cm kubeadm-config -o yaml'
+[preflight] Running pre-flight checks before initializing the new control plane instance
+[preflight] Would pull the required images (like 'kubeadm config images pull')
+[certs] Using certificateDir folder "/etc/kubernetes/pki"
+error execution phase control-plane-prepare/certs: error creating PKI assets: failed to write or validate certificate "etcd-peer": certificate etcd/peer is invalid: x509: certificate is valid for k8s-rocky001.lab.example.com, localhost, not k8s-rocky002.lab.example.com
+To see the stack trace of this error execute with --v=5 or higher
+##fix
+[rocky@k8s-rocky001 ~]$ diff -y kubeadm-config-new.yaml kubeadm-config-new-2.yaml | grep \> -C2
+      local:                                                          local:
+        dataDir: /var/lib/etcd                                          dataDir: /var/lib/etcd
+                                                              >       certSANs:
+                                                              >       - k8s-rocky002.lab.example.com
+                                                              >       - k8s-rocky003.lab.example.com
+    imageRepository: registry.aliyuncs.com/google_containers        imageRepository: registry.aliyuncs.com/google_containers
+    kind: ClusterConfiguration                                      kind: ClusterConfiguration
+
+
+
+
+
+
+
+
