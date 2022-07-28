@@ -1,0 +1,36 @@
+
+https://btholt.github.io/complete-intro-to-containers/namespaces
+
+#host vm(ubuntu20.04)
+sudo apt update
+sudo apt install debootstrap
+sudo debootstrap --variant=minbase focal /better-root
+sudo chroot /better-root/ bash
+sudo unshare --mount --uts --ipc --net --pid --fork --user --map-root-user chroot /better-root bash
+
+#namespace
+root@ubuntu:/# mount -t proc none /proc
+root@ubuntu:/# mount -t sysfs none /sys
+root@ubuntu:/# mount -t tmpfs none /tmp
+root@ubuntu:/# df -h
+Filesystem      Size  Used Avail Use% Mounted on
+none            992M     0  992M   0% /tmp
+root@ubuntu:/# ps aux
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  0.0  0.1   4236  3568 ?        S    15:30   0:00 bash
+root          14  0.0  0.1   5880  2920 ?        R+   15:32   0:00 ps aux
+root@ubuntu:/# tail -f /var/log/faillog
+
+#host vm
+ps aux| grep tail
+root       23576  0.0  0.0   2544   592 pts/1    S+   15:43   0:00 tail -f /var/log/faillog
+ubuntu     23578  0.0  0.0   6300   660 pts/2    S+   15:44   0:00 grep --color=auto tail
+sudo kill 23576
+
+
+#namespace
+root@ubuntu:/# tail -f /var/log/faillog
+Terminated
+
+
+
