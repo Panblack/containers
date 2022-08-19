@@ -101,4 +101,28 @@ To use the systemd cgroup driver in /etc/containerd/config.toml with runc, set
       [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
         SystemdCgroup = true
 
+## k8s.gcr.io mirror:
+
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+          endpoint = ["https://7xsui36w.mirror.aliyuncs.com"]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."k8s.gcr.io"]
+          endpoint = ["https://registry.aliyuncs.com/google_containers"]
+         #endpoint = ["https://registry.cn-hangzhou.aliyuncs.com/google_containers"]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
+          endpoint = ["https://quay.azk8s.cn"]
+
+
+
+gcloud:
+gcloud container images list --project google-containers
+gcloud container images list --project kubernetes-helm
+
+gcloud container images list --repository gcr.io/google-containers
+gcloud container images list-tags gcr.io/google-containers/metrics-server
+
+gcloud container images list --repository k8s.gcr.io/metrics-server
+gcloud container images list-tags k8s.gcr.io/metrics-server/metrics-server
+
+
 
