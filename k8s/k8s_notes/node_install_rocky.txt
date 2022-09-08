@@ -1,13 +1,6 @@
 
 ## nodes
 ``
-192.168.1.120  k8s-node-template
-192.168.1.121  k8s-node001.lab.example.com k8s-node001
-192.168.1.122  k8s-node002.lab.example.com k8s-node002
-192.168.1.123  k8s-node003.lab.example.com k8s-node003
-192.168.1.124  k8s-node004.lab.example.com k8s-node004
-#192.168.1.125  k8s-node005.lab.example.com k8s-node005
-
 192.168.1.131 k8s-rocky001.lab.example.com      k8s-rocky001
 192.168.1.132 k8s-rocky002.lab.example.com      k8s-rocky002
 192.168.1.133 k8s-rocky003.lab.example.com      k8s-rocky003
@@ -18,8 +11,6 @@
 ## Config template VM
 ```
 #sudo
-##ubuntu:
-echo "ubuntu  ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/ubuntu
 ##rocky8:
 echo "rocky  ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/rocky
 
@@ -34,8 +25,6 @@ eof
 sudo sysctl --system
 
 #kernel modules
-##ubuntu:
-echo 'br_netfilter' | sudo tee -a /etc/modules 
 ##rocky8:
 echo -e 'overlay\nbr_netfilter' | sudo tee /etc/modules-load.d/k8s.conf
 
@@ -51,11 +40,6 @@ sudo modprobe br_netfilter
 sudo swapoff -a
 sudo cp -p /etc/fstab /etc/fstab.bak
 
-##ubuntu:
-sudo sed -ir 's/.*swap/#&/g' /etc/fstab
-rm -rf /swap.img
-free -th
-
 ##rocky8: disable swap and remove swap lv
 sudo lvremove /dev/rl/swap
 sudo lvextend -r -l +100%FREE /dev/rl/root
@@ -69,11 +53,6 @@ sudo vi /etc/sysconfig/grub
 sudo grub2-mkconfig --output=/boot/grub2/grub.cfg
 sudo reboot
 
-
-#ubuntu: turn off autoupgrade
-sudo sed -i 's/1/0/g' /etc/apt/apt.conf.d/20auto-upgrades
-sudo sed -i 's/1/0/g' /etc/apt/apt.conf.d/10periodic
-sudo systemctl disable unattended-upgrades.service
 
 #rocky8: turn off selinux
 sudo sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/sysconfig/selinux
@@ -101,26 +80,12 @@ GATEWAY=192.168.1.1
 DNS1=192.168.1.1
 
 
-##ubuntu:
-###install containerd
-sudo apt-get update; sudo apt-get upgrade -y
-sudo apt-get install ca-certificates curl gnupg lsb-release tree sysstat -y
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install containerd.io
+#install containerd
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum install containerd.io
 
-
-#aliyun k8s repo & install kube*
-curl -s https://mirrors.aliyun.com/kubernetes/apt/doc/apt-key.gpg | sudo apt-key add -
-echo "deb https://mirrors.aliyun.com/kubernetes/apt/ kubernetes-xenial main" >>/etc/apt/sources.list.d/kubernetes.list
-sudo apt-get update
-sudo apt-get install kubelet=1.24.1-00 kubectl=1.24.1-00 kubeadm=1.24.1-00 -y
-echo -e "source <(kubeadm completion bash)\nsource <(kubectl completion bash)\nsource <(crictl completion bash)" >> ~/.profile
-
+#install kube*
 ##rocky8:
 cat << eof | sudo tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
@@ -134,48 +99,16 @@ eof
 sudo dnf install epel-release dnf-utils iproute-tc vim wget zip sysstat -y
 sudo yum-config-manager --add-repo http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
 sudo dnf makecache
-sudo dnf install containerd
-	Installing:
-	 containerd.io                 
-	Installing dependencies:
-	 checkpolicy                   
-	 container-selinux             
-	 policycoreutils-python-utils  
-	 python3-audit                 
-	 python3-libsemanage           
-	 python3-policycoreutils       
-	 python3-setools               
 sudo dnf install kubeadm-1.24.2-0 kubectl-1.24.2-0 kubelet-1.24.2-0
 echo -e "source <(kubeadm completion bash)\nsource <(kubectl completion bash)\nsource <(crictl completion bash)" >> ~/.bashrc
 
 
-#containerd
+#containerd config
 sudo mkdir /etc/containerd
 sudo containerd config default > containerd.default.config.toml
 sudo cp -p /etc/containerd/config.toml containerd.config.toml.rpm
 sudo cp containerd.default.config.toml /etc/containerd/config.toml
 sudo vim /etc/containerd/config.toml
-
-	##ubuntu:
-	$ sudo diff /etc/containerd/config.toml containerd.default.config.toml
-	56c56
-	<     sandbox_image = "registry.aliyuncs.com/google_containers/pause:3.7"
-	---
-	>     sandbox_image = "k8s.gcr.io/pause:3.5"
-	112c112
-	<             SystemdCgroup = true
-	---
-	>             SystemdCgroup = false
-	138,141d137
-	<        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
-       #<          endpoint = ["https://docker.mirrors.ustc.edu.cn"]
-	<          endpoint = ["https://<your_accelerator>.mirror.aliyuncs.com"]
-	<        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."k8s.gcr.io"]
-	<           endpoint = ["https://registry.aliyuncs.com/google_containers"]
-	<        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
-	<           endpoint = ["https://registry.aliyuncs.com/google_containers"]
-        <        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
-        <          endpoint = ["https://quay.azk8s.cn"]
 
 	##rocky8:
 	$ sudo diff /etc/containerd/config.toml containerd.default.config.toml
@@ -219,22 +152,6 @@ sudo reboot
 
 ## Clone VMs
 ```
-##ubuntu:
-sudo hostnamectl set-hostname k8s-node001.lab.example.com
-sudo init 6
-sudo hostnamectl set-hostname k8s-node002.lab.example.com
-sudo sed -i 's/120/122/g' /etc/netplan/00-installer-config.yaml
-sudo init 6
-sudo hostnamectl set-hostname k8s-node003.lab.example.com
-sudo sed -i 's/120/123/g' /etc/netplan/00-installer-config.yaml
-sudo init 6
-sudo hostnamectl set-hostname k8s-node004.lab.example.com
-sudo sed -i 's/120/124/g' /etc/netplan/00-installer-config.yaml
-sudo init 6
-
-sudo cat /sys/class/dmi/id/product_uuid
-ip a s ens3
-
 ##rocky8:
 sudo hostnamectl set-hostname k8s-rocky002.lab.example.com
 sudo sed -i 's/192.168.1.131/192.168.1.132/g' /etc/sysconfig/network-scripts/ifcfg-enp0s3
@@ -385,52 +302,6 @@ grep image.*calico calico.yaml
           image: docker.io/calico/node:v3.23.1
           image: docker.io/calico/kube-controllers:v3.23.1
 kubectl apply -f calico.yaml
-
-
-
-#ctr and crictl
-ubuntu@k8s-node002:~$ sudo ctr image ls -q
-registry.aliyuncs.com/google_containers/pause:3.7
-ubuntu@k8s-node002:~$
-
-ubuntu@k8s-node002:~$ sudo ctr -n k8s.io image ls -q
-registry.aliyuncs.com/google_containers/kube-proxy:v1.24.1
-registry.aliyuncs.com/google_containers/kube-proxy@sha256:1652df3138207570f52ae0be05cbf26c02648e6a4c30ced3f779fe3d6295ad6d
-registry.aliyuncs.com/google_containers/pause:3.7
-registry.aliyuncs.com/google_containers/pause@sha256:bb6ed397957e9ca7c65ada0db5c5d1c707c9c8afc80a94acbe69f3ae76988f0c
-sha256:221177c6082a88ea4f6240ab2450d540955ac6f4d5454f0e15751b653ebda165
-sha256:beb86f5d8e6cd2234ca24649b74bd10e1e12446764560a3804d85dd6815d0a18
-
-ubuntu@k8s-node002:~$ sudo crictl image ls
-IMAGE                                                TAG                 IMAGE ID            SIZE
-registry.aliyuncs.com/google_containers/kube-proxy   v1.24.1             beb86f5d8e6cd       39.5MB
-registry.aliyuncs.com/google_containers/pause        3.7                 221177c6082a8       311kB
-
-#export crictl images
-sudo ctr -n k8s.io image export calico.cni.v3.23.1.tar docker.io/calico/cni:v3.23.1
-sudo ctr -n k8s.io image export calico.node.v3.23.1.tar docker.io/calico/node:v3.23.1
-sudo ctr -n k8s.io image export calico.kube-controllers.v3.23.1.tar docker.io/calico/kube-controllers:v3.23.1
-sudo ctr -n k8s.io image export kube-proxy.v1.24.1.tar registry.aliyuncs.com/google_containers/kube-proxy:v1.24.1
-sudo ctr -n k8s.io image export pause.3.7.tar registry.aliyuncs.com/google_containers/pause:3.7
-
-#import crictl images
-sudo ctr -n k8s.io image import --base-name docker.io/calico/node:v3.23.1 calico.node.v3.23.1.tar
-sudo ctr -n k8s.io image import --base-name docker.io/calico/cni:v3.23.1  calico.cni.v3.23.1.tar
-sudo ctr -n k8s.io image import --base-name docker.io/calico/kube-controllers:v3.23.1 calico.kube-controllers.v3.23.1.tar
-sudo ctr -n k8s.io image import --base-name kube-proxy.v1.24.1.tar registry.aliyuncs.com/google_containers/kube-proxy:v1.24.1
-sudo ctr -n k8s.io image import --base-name registry.aliyuncs.com/google_containers/pause:3.7 pause.3.7.tar
-
-
-ubuntu@k8s-node002:~$ sudo ctr -n k8s.io image import --base-name docker.io/calico/node:v3.23.1 calico.node.v3.23.1.tar
-ubuntu@k8s-node002:~$ sudo crictl image ls
-IMAGE                                                TAG                 IMAGE ID            SIZE
-docker.io/calico/cni                                 v3.23.1             90d97aa939bbf       111MB
-docker.io/calico/kube-controllers                    v3.23.1             4d33632489a4d       56.4MB
-docker.io/calico/node                                v3.23.1             fbfd04bbb7f47       76.6MB
-registry.aliyuncs.com/google_containers/kube-proxy   v1.24.1             beb86f5d8e6cd       39.5MB
-registry.aliyuncs.com/google_containers/pause        3.7                 221177c6082a8       311kB
-
-
 
 ```
 
