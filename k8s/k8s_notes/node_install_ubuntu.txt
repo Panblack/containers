@@ -77,6 +77,7 @@ echo -e "source <(kubeadm completion bash)\nsource <(kubectl completion bash)\ns
 
 #containerd
 sudo mkdir /etc/containerd
+sudo cp -p /etc/containerd/config.toml /etc/containerd/config.toml.bak
 sudo containerd config default > containerd.default.config.toml
 sudo cp -p /etc/containerd/config.toml containerd.config.toml.rpm
 sudo cp containerd.default.config.toml /etc/containerd/config.toml
