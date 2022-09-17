@@ -1,3 +1,5 @@
+
+## ubuntu
 https://docs.docker.com/engine/install/ubuntu/
 
 sudo apt-get remove docker docker-engine docker.io containerd runc
@@ -16,4 +18,15 @@ apt-cache madison docker-ce
 sudo apt-get install docker-ce=<VERSION_STRING> docker-ce-cli=<VERSION_STRING> containerd.io docker-compose-plugin
 
 curl -fsSL https://get.docker.com -o get-docker.sh
+
+
+## centos
+https://docs.docker.com/engine/install/centos/
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum install docker-ce docker-compose-plugin -y
+
+yum list docker-ce --showduplicates | sort -r
+sudo yum install docker-ce-<VERSION_STRING> docker-compose-plugin -y
+
 
