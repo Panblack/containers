@@ -1,0 +1,121 @@
+
+# MicroK8S install
+## system and network
+ubuntu@ubuntu2204:~$ sudo cat /etc/sudoers.d/ubuntu
+ubuntu ALL = (ALL) NOPASSWD: ALL
+
+sudo hostnamectl set-hostname microk8s001.lab.example.com
+
+ubuntu@microk8s001:~$ sudo cp -p /etc/netplan/00-installer-config.yaml ~/
+ubuntu@microk8s001:~$ sudo cat ~/00-installer-config.yaml
+# This is the network config written by 'subiquity'
+network:
+  ethernets:
+    enp0s3:
+      addresses:
+      - 192.168.1.161/24
+      routes:
+      - to: default
+        via: 192.168.1.1
+      nameservers:
+        addresses:
+        - 192.168.1.1
+        search:
+        - lab.example.com
+  version: 2
+ubuntu@microk8s001:~$ cat /etc/netplan/00-installer-config.yaml
+network:
+  version: 2
+  ethernets:
+    enp0s3:
+      dhcp4: true
+      nameservers:
+        search:
+        - lab.example.com
+ubuntu@microk8s001:~$ cat /etc/hosts
+127.0.0.1 localhost
+192.168.1.161 microk8s001.lab.example.com microk8s001
+192.168.1.162 microk8s002.lab.example.com microk8s002
+192.168.1.163 microk8s003.lab.example.com microk8s003
+192.168.1.164 microk8s004.lab.example.com microk8s004
+192.168.1.165 microk8s005.lab.example.com microk8s005
+192.168.1.166 microk8s006.lab.example.com microk8s006
+192.168.1.161 microk8s-registry.lab.example.com
+
+## environment
+~/.bashrc
+force_color_prompt=yes
+PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\][\u@\h\[\033[00m\]:\[\033[01;34m\] `date +%FT%T` \w\[\033[00m\]]\n\$ '
+
+~/.vimrc
+nnoremap q :q
+nnoremap Q :q!
+autocmd Filetype yaml setlocal ai ts=2 sw=2 et
+set paste
+set nosi
+set hlsearch
+
+ssh-keygen -t rsa
+ssh-copy-id ubuntu@microk8s001
+
+$ cat ~/.ssh/authorized_keys
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCzf6TpX8l7lf4dk81W0b4JbM4O9RhaZ/soZUe+XQP4CEF9DWQqknSp4VDXpGZ5K//nlT2Xp441zJD4YKBhEIIW598lQ8UUaOdZGdeReNXPEJQtzw+VIh8ETbsKF1r6Q+uueq77V5bt70uw0iRIX+7i4H/4UEiBC8ZcTsqP6Dx5aOrkHsJEQPzN+sT4ydHxv8MQ0KUUGAjtOeyPXE813bt4AtddixD4ACp3gqKbHk2snXrkXA5iC29p76WqUGq3IILdcif03v1Rf+abgBTjGB8UdhRLbDR9A4NPbf0XVkRv/M4t34jtoOgOLoaP5nnk4m3OpSt46PGfBGNa70lz0mv xuw@x230i
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDa2XiUv5/+ZHTA+ypDxe0BVlHMN2NyVBltfzRxPYttemNkWcOKSoCRQyMZkbUQfNwKJwUb0aeQ9Deyiw7RY4MMcwemmTSpzbEv/vzW+76ICzYSK0zbdoIdkv/QcpNihROa8itKD2KdMfUkBl8K/fpNBHYRL5GFWWNTbX63NTy5r2rNRodqO+7LRG+2OtLnI9Kd4meVI3/jmLhPuz16oTdgxWKCNhlVtCyz+HlE5CRiTFSqjiW4lYzchDIHV7NzOnvFoz4fcXkQw+S9TvoRwCT1MlYO/kEuuZN2LL0TpZZsYVfEv4DdZRtGAK2c/rp0/rX0+C9mXahrT6GxvpcZrhkD6RIyJS+Mrg2TtDrNxK4PbCdkxP8vovxRvgcCO31sixsIyuEmLMS9JRc6hHbLdGraa9BZ56UmTKyS7kKHrGlTADU4TTT7M3TdwlJ8QErS3blB+ca+aZtQlf3/52lOSm6IXm2ikUxmIONqYUX7yp6oyE+bA1sxFZPf4EkicJ2GPEc= ubuntu@microk8s001.lab.example.com
+
+$ cat ~/bin/down-all.sh
+#!/bin/bash
+for x in `seq 1 6 `; do
+  ssh -l ubuntu 192.168.1.16$x "sudo init 0"
+done
+sleep 2
+sudo init 0
+
+
+## packages
+sudo apt-get update; sudo apt-get upgrade
+sudo snap install --channel=1.24 microk8s --classic
+sudo snap alias microk8s.kubectl kubectl
+sudo snap alias microk8s.helm helm
+sudo snap alias microk8s.ctr ctr
+mkdir ~/.kube
+
+sudo apt-get install jq
+
+mkdir yq; cd yq
+wget https://github.com/mikefarah/yq/releases/download/v4.27.5/yq_linux_amd64.tar.gz
+tar zxf yq_linux_amd64.tar.gz
+sudo mv yq_linux_amd64 /usr/local/bin/yq
+sudo ./install-man-page.sh
+cd ..; rm yq -rf
+
+## aws ca
+$ cat /usr/local/share/ca-certificates/cfssl_ca_aws.crt
+-----BEGIN CERTIFICATE-----
+MIIDujCCAqKgAwIBAgIUaPURoFxLcsO0acYbGYqf0aTLKAYwDQYJKoZIhvcNAQEL
+BQAwdTELMAkGA1UEBhMCQ04xEDAOBgNVBAgTB0JlaUppbmcxEDAOBgNVBAcTB0Jl
+aUppbmcxDDAKBgNVBAoTA2s4czEPMA0GA1UECxMGU3lzdGVtMSMwIQYDVQQDExpz
+ZWxmLmNvbXB1dGUuYW1hem9uYXdzLmNvbTAeFw0yMjA5MDMwNzU4MDBaFw0zMjA4
+MzEwNzU4MDBaMHUxCzAJBgNVBAYTAkNOMRAwDgYDVQQIEwdCZWlKaW5nMRAwDgYD
+VQQHEwdCZWlKaW5nMQwwCgYDVQQKEwNrOHMxDzANBgNVBAsTBlN5c3RlbTEjMCEG
+A1UEAxMac2VsZi5jb21wdXRlLmFtYXpvbmF3cy5jb20wggEiMA0GCSqGSIb3DQEB
+AQUAA4IBDwAwggEKAoIBAQDGGQRDzZmd2eqYhyBnqBCJq+zKMrkpnEOY93eXsfIG
+ok85bDRRhNnTixSZh20GbtTZf9LWnytcBWV3dJ6/KrX9HyUPpiGds+OzpxPtoLKB
+3/axq9hf+KiwHqr0ZcZs4Z9dkenfJFH3KO9VHhOLqYWBrlkAjcXXNlKqp+GxCGsr
+gyq+FS9p2DorftMskUggERL0aXyrZfPTZ+ksjL2Pt6d9GVml2u9i8fYQ1JXq01dz
+l1Q4hj99xpGn7l/GXqxbshEkfMij44lC7NOZt2qRpcv8wKX+SVoT3VhxDylfqHzf
+fe9vFCYrNEku1uLR/mkPSvXPxJ+/xjMDM3hQzJu5h7XbAgMBAAGjQjBAMA4GA1Ud
+DwEB/wQEAwIBBjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBRkXlicQyk6NqOb
+rP76q1I1iGUGpTANBgkqhkiG9w0BAQsFAAOCAQEAil+iwh0pDJi4Yba2T26geP/J
+eMqTyKLh/DLORH4O7TAWSBr/ySU1LFCQL/rPsO7WLXfEWmq9dr8Hl4YgktNLJ9PY
+iBAeUaBqqf+XYOCg7AXYfyHAnYkY5PZbMW4tqS3k93jEH3XJxo4gJuuycp+Vd6Nw
+6CKi2yF1VflYdbYU9RmU5vrbVFwErjHGsgktrkZkpFs4KrrQYpSWLq3n9wQZ15tN
+vJOkwnd/YYnnvQ/k94uz4ni9HwFw9nlD0cssuRgNBeZK6fJeQg4kFfhM3UGHi1yW
+Mfj1HpCpoZl/NHW7ds7U+1SKOq2rslTpkCdRqEgVf5NoDYhcCYU9xPntQkqvYg==
+-----END CERTIFICATE-----
+
+$ sudo update-ca-certificates
+
+$ ll /etc/ssl/certs/ |grep aws
+lrwxrwxrwx 1 root root     16 Sep 18 11:50 c8cfc938.0 -> cfssl_ca_aws.pem
+lrwxrwxrwx 1 root root     49 Sep 18 11:50 cfssl_ca_aws.pem -> /usr/local/share/ca-certificates/cfssl_ca_aws.crt
+
