@@ -1,0 +1,111 @@
+03. Repositories
+two main repositories:
+- BaseOS
+- AppStream
+
+04. Application streams
+Components made available as Application Streams can be packaged as modules or RPM packages and are delivered through the AppStream repository in RHEL 8. 
+https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html-single/installing_managing_and_removing_user-space_components/
+
+
+05. Installer and image creation
+5.7. Kickstart changes
+https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html-single/considerations_in_adopting_rhel_8/index#kickstart-changes_installation-and-booting
+5.8. Image creation
+https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/composing_a_customized_rhel_system_image/index
+- `yum install osbuild-composer`
+- `composer-cli`
+Image Builder output formats include, among others:
+- TAR archive
+- qcow2 file for direct use with a virtual machine or OpenStack
+- QEMU QCOW2 Image
+- cloud images for Azure, VMWare and AWS
+
+
+06. Software management
+https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html-single/considerations_in_adopting_rhel_8/index#software-management_considerations-in-adopting-RHEL-8
+https://dnf.readthedocs.io/en/latest/cli_vs_yum.html
+
+07. Infrastructure services
+7.2. BIND - Implementation of DNS
+Only chronyd!  https://chrony.tuxfamily.org/comparison.html
+7.2. BIND - Implementation of DNS
+BIND (Berkeley Internet Name Domain) in version 9.11
+7.4. Postfix
+In FIPS mode, the MD5 hashing function is not available. As a workaround, the hashing function needs to be changed to SHA-256 in the postfix configuration file.
+7.7. Other changes to infrastructure services components
+https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html-single/considerations_in_adopting_rhel_8/index#notable-changes-to-particular-components_infrastructure-services
+
+08. Security
+8.1.5. TLS 1.0 and TLS 1.1 are deprecated
+8.1.6. TLS 1.3 support in cryptographic libraries
+8.1.8. SSL2 Client Hello has been deprecated in NSS
+8.2.1. OpenSSH rebased to version 7.8p1
+The openssh packages have been upgraded to upstream version 7.8p1. Notable changes include:
+- Removed support for the SSH version 1 protocol.
+- Removed support for the hmac-ripemd160 message authentication code.
+- Removed support for RC4 (arcfour) ciphers.
+- Removed support for Blowfish ciphers.
+- Removed support for CAST ciphers.
+- Changed the default value of the UseDNS option to no.
+- Disabled DSA public key algorithms by default.
+- Changed the minimal modulus size for Diffie-Hellman parameters to 2048 bits.
+- Changed semantics of the ExposeAuthInfo configuration option.
+- The UsePrivilegeSeparation=sandbox option is now mandatory and cannot be disabled.
+- Set the minimal accepted RSA key size to 1024 bits.
+8.3.1. The default rsyslog configuration file format is now non-legacy
+- rsyslog.conf(5)
+8.3.2. The imjournal option and configuring system logging with minimized journald usage
+8.3.3. Negative effects of the default logging setup on performance
+The default logging environment setup might consume 4 GB of memory or even more and adjustments of rate-limit values are complex when systemd-journald is running with rsyslog.
+8.7.1. shadow-utils no longer allow all-numeric user and group names
+The useradd and groupadd commands disallow user and group names consisting purely of numeric characters.
+8.7.2. securetty is now disabled by default
+the securetty PAM module has been disabled by default and the /etc/securetty configuration file is no longer included in RHEL.
+8.7.3. 2. crypto-utils have been removed
+The crypto-utils packages have been removed from RHEL 8. You can use tools provided by the openssl, gnutls-utils, and nss-tools packages instead.
+
+09. Networking
+9.1.1. Legacy network scripts support
+`yum install network-scripts`
+9.1.3. NetworkManager supports a wildcard interface name match for connections
+9.1.5. NetworkManager now uses the internal DHCP plug-in by default
+/etc/NetworkManager/NetworkManager.conf
+[main]
+dhcp=internal
+#dhcp=dhclient
+9.2.1. nftables replaces iptables as the default network packet filtering framework
+support for debugging and tracing in the rule set (nftrace) and monitoring trace events (in the nft tool)
+/usr/sbin/ebtables -> xtables-nft-multi
+/usr/sbin/ip6tables -> xtables-nft-multi
+/usr/sbin/iptables -> xtables-nft-multi
+9.2.4. New tools to convert iptables to nftables
+- `iptables-translate` : iptables rules -> nftables rules
+- `iptables-restore-translate`: translate from a file
+
+10. Kernel
+11. Hardware enablement
+
+12. File systems and storage
+12.1.1. Btrfs has been removed( not available in yum repos)
+12.1.4. NFS
+  - /etc/sysconfig/nfs -> /etc/nfs.conf
+  - NFS service aliases have been removed and replaced by their upstream names:
+    - nfs.service 		nfs-server.service
+    - nfs-secure.service	rpc-gssd.service
+    - rpcgssd.service		rpc-gssd.service
+    - nfs-idmap.service		nfs-idmapd.service
+    - rpcidmapd.service		nfs-idmapd.service
+    - nfs-lock.service		rpc-statd.service
+    - nfslock.service		rpc-statd.service
+12.2.2. Stratis is now available
+
+13. High availability and clusters
+- No in-place upgrades from RHEL 7 to RHEL 8 clusters, must configure a new cluster in RHEL 8
+- Cannot run a cluster that includes nodes running both RHEL 7 and RHEL 8
+...
+
+
+
+
+
