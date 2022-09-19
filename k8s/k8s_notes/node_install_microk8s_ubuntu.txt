@@ -1,6 +1,6 @@
 
 # MicroK8S install
-## system and network
+## user and network
 ubuntu@ubuntu2204:~$ sudo cat /etc/sudoers.d/ubuntu
 ubuntu ALL = (ALL) NOPASSWD: ALL
 
@@ -64,12 +64,13 @@ ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDa2XiUv5/+ZHTA+ypDxe0BVlHMN2NyVBltfzRxPYtt
 
 $ cat ~/bin/down-all.sh
 #!/bin/bash
-for x in `seq 1 6 `; do
-  ssh -l ubuntu 192.168.1.16$x "sudo init 0"
+for x in `seq 2 6 `; do
+  ssh -o ConnectTimeout=1 ubuntu@192.168.1.16$x "sudo init 0"
 done
 sleep 2
 sudo init 0
 
+sudo timedatectl set-timezone Asia/Shanghai
 
 ## packages
 sudo apt-get update; sudo apt-get upgrade
@@ -79,7 +80,8 @@ sudo snap alias microk8s.helm helm
 sudo snap alias microk8s.ctr ctr
 mkdir ~/.kube
 
-sudo apt-get install jq
+sudo apt-get install jq pssh -y 
+sudo ln -s /usr/bin/parallel-ssh /usr/bin/pssh
 
 mkdir yq; cd yq
 wget https://github.com/mikefarah/yq/releases/download/v4.27.5/yq_linux_amd64.tar.gz
