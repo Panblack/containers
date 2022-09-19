@@ -79,6 +79,7 @@ sudo snap alias microk8s.kubectl kubectl
 sudo snap alias microk8s.helm helm
 sudo snap alias microk8s.ctr ctr
 mkdir ~/.kube
+echo 'source <(kubectl completion bash)' >> .profile
 
 sudo apt-get install jq pssh -y 
 sudo ln -s /usr/bin/parallel-ssh /usr/bin/pssh
@@ -120,4 +121,149 @@ $ sudo update-ca-certificates
 $ ll /etc/ssl/certs/ |grep aws
 lrwxrwxrwx 1 root root     16 Sep 18 11:50 c8cfc938.0 -> cfssl_ca_aws.pem
 lrwxrwxrwx 1 root root     49 Sep 18 11:50 cfssl_ca_aws.pem -> /usr/local/share/ca-certificates/cfssl_ca_aws.crt
+
+
+
+## configure
+$ 
+$ sudo microk8s enable helm3 dns hostpath-storage ingress metallb metrics-server
+
+
+$ sudo microk8s enable helm3 dns hostpath-storage ingress metallb metrics-server
+Helm 3 is enabled
+DNS is enabled
+
+Enabling default storage class.
+WARNING: Hostpath storage is not suitable for production environments.
+deployment.apps/hostpath-provisioner created
+Storage will be available soon.
+
+Enabling Ingress
+Ingress is enabled
+
+Enabling MetalLB
+Enter each IP address range delimited by comma (e.g. '10.64.140.43-10.64.140.49,192.168.0.105-192.168.0.111'): 192.168.14.170-192.168.1.179
+Warning: policy/v1beta1 PodSecurityPolicy is deprecated in v1.21+, unavailable in v1.25+
+Warning: spec.template.spec.nodeSelector[beta.kubernetes.io/os]: deprecated since v1.14; use "kubernetes.io/os" instead
+MetalLB is enabled
+
+Enabling Metrics-Server
+Metrics-Server is enabled
+
+### adding nodes
+[ubuntu@microk8s001: 2022-09-19T14:50:11 ~]$ microk8s add-node
+[ubuntu@microk8s002: 2022-09-19T14:50:47 ~]$ microk8s join 192.168.1.161:25000/xxxxxxx
+...
+
+[ubuntu@microk8s001: 2022-09-19T14:55:11 ~]$ microk8s add-node
+[ubuntu@microk8s004: 2022-09-19T14:55:35 ~]$ microk8s join 192.168.1.161:25000/fdded79b688b33b056941972820d4ce7/903ec0a4aea7 --worker
+Contacting cluster at 192.168.1.161
+
+The node has joined the cluster and will appear in the nodes list in a few seconds.
+
+Currently this worker node is configured with the following kubernetes API server endpoints:
+    - 192.168.1.161 and port 16443, this is the cluster node contacted during the join operation.
+    - 192.168.1.162 assuming port 16443
+    - 192.168.1.163 assuming port 16443
+
+If the above endpoints are incorrect, incomplete or if the API servers are behind a loadbalancer please update
+/var/snap/microk8s/current/args/traefik/provider.yaml
+
+
+[ubuntu@microk8s001: 2022-09-19T15:00:53 ~]
+$ microk8s status
+microk8s is running
+high-availability: yes
+  datastore master nodes: 192.168.1.161:19001 192.168.1.162:19001 192.168.1.163:19001
+  datastore standby nodes: none
+addons:
+  enabled:
+    dns                  # (core) CoreDNS
+    ha-cluster           # (core) Configure high availability on the current node
+    helm3                # (core) Helm 3 - Kubernetes package manager
+    hostpath-storage     # (core) Storage class; allocates storage from host directory
+    ingress              # (core) Ingress controller for external access
+    metallb              # (core) Loadbalancer for your Kubernetes cluster
+    metrics-server       # (core) K8s Metrics Server for API access to service metrics
+    storage              # (core) Alias to hostpath-storage add-on, deprecated
+  disabled:
+    community            # (core) The community addons repository
+    dashboard            # (core) The Kubernetes dashboard
+    gpu                  # (core) Automatic enablement of Nvidia CUDA
+    helm                 # (core) Helm 2 - the package manager for Kubernetes
+    host-access          # (core) Allow Pods connecting to Host services smoothly
+    mayastor             # (core) OpenEBS MayaStor
+    prometheus           # (core) Prometheus operator for monitoring and logging
+    rbac                 # (core) Role-Based Access Control for authorisation
+    registry             # (core) Private image registry exposed on localhost:32000
+[ubuntu@microk8s001: 2022-09-19T15:01:09 ~]
+$ kubectl get nodes -o wide
+NAME                          STATUS   ROLES    AGE     VERSION                    INTERNAL-IP     EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME
+microk8s001.lab.example.com   Ready    <none>   20h     v1.24.4-2+2f38f78fa07274   192.168.1.161   <none>        Ubuntu 22.04.1 LTS   5.15.0-47-generic   containerd://1.5.13
+microk8s003.lab.example.com   Ready    <none>   4m29s   v1.24.4-2+2f38f78fa07274   192.168.1.163   <none>        Ubuntu 22.04.1 LTS   5.15.0-47-generic   containerd://1.5.13
+microk8s004.lab.example.com   Ready    <none>   3m37s   v1.24.4-2+2f38f78fa07274   192.168.1.164   <none>        Ubuntu 22.04.1 LTS   5.15.0-47-generic   containerd://1.5.13
+microk8s005.lab.example.com   Ready    <none>   108s    v1.24.4-2+2f38f78fa07274   192.168.1.165   <none>        Ubuntu 22.04.1 LTS   5.15.0-47-generic   containerd://1.5.13
+microk8s002.lab.example.com   Ready    <none>   6m51s   v1.24.4-2+2f38f78fa07274   192.168.1.162   <none>        Ubuntu 22.04.1 LTS   5.15.0-47-generic   containerd://1.5.13
+
+
+### prometheus
+$ microk8s enable prometheus
+Infer repository core for addon prometheus
+Adding argument --authentication-token-webhook to nodes.
+Configuring node 192.168.1.163
+Configuring node 192.168.1.164
+Configuring node 192.168.1.165
+Configuring node 192.168.1.162
+Restarting nodes.
+Configuring node 192.168.1.163
+Configuring node 192.168.1.164
+Configuring node 192.168.1.165
+Configuring node 192.168.1.162
+Infer repository core for addon dns
+Addon core/dns is already enabled
+Fetching kube-prometheus version v0.8.0.
+...
+alertmanager.monitoring.coreos.com/main created
+Warning: policy/v1beta1 PodDisruptionBudget is deprecated in v1.21+, unavailable in v1.25+; use policy/v1 PodDisruptionBudget
+...
+configmap/grafana-dashboards created
+Warning: spec.template.spec.nodeSelector[beta.kubernetes.io/os]: deprecated since v1.14; use "kubernetes.io/os" instead
+...
+service/prometheus-k8s created
+serviceaccount/prometheus-k8s created
+servicemonitor.monitoring.coreos.com/prometheus-k8s created
+The Prometheus operator is enabled (user/pass: admin/admin)
+
+[ubuntu@microk8s001: 2022-09-19T15:24:02 ~]
+$ kubectl get pods -n monitoring -o wide
+NAME                                   READY   STATUS    RESTARTS        AGE     IP              NODE                          NOMINATED NODE   READINESS GATES
+prometheus-adapter-85455b9f55-xcrns    1/1     Running   0               8m11s   10.1.37.130     microk8s002.lab.example.com   <none>           <none>
+node-exporter-8z6l4                    2/2     Running   0               8m11s   192.168.1.161   microk8s001.lab.example.com   <none>           <none>
+prometheus-adapter-85455b9f55-r22np    1/1     Running   0               8m11s   10.1.3.130      microk8s005.lab.example.com   <none>           <none>
+node-exporter-kx2mb                    2/2     Running   0               8m11s   192.168.1.165   microk8s005.lab.example.com   <none>           <none>
+node-exporter-x8qr9                    2/2     Running   0               8m11s   192.168.1.164   microk8s004.lab.example.com   <none>           <none>
+prometheus-operator-65cdb77c59-dr76z   2/2     Running   0               8m11s   10.1.44.66      microk8s004.lab.example.com   <none>           <none>
+node-exporter-7wx28                    2/2     Running   0               8m11s   192.168.1.162   microk8s002.lab.example.com   <none>           <none>
+node-exporter-f9gtj                    2/2     Running   0               8m11s   192.168.1.163   microk8s003.lab.example.com   <none>           <none>
+kube-state-metrics-55b87f58f6-htbbn    3/3     Running   0               8m11s   10.1.37.131     microk8s002.lab.example.com   <none>           <none>
+prometheus-k8s-0                       2/2     Running   1 (5m32s ago)   7m9s    10.1.44.67      microk8s004.lab.example.com   <none>           <none>
+grafana-789464df6b-kb6wn               1/1     Running   0               8m11s   10.1.124.2      microk8s003.lab.example.com   <none>           <none>
+blackbox-exporter-84c68b59b8-nt5mf     3/3     Running   0               8m11s   10.1.37.132     microk8s002.lab.example.com   <none>           <none>
+alertmanager-main-0                    2/2     Running   0               7m9s    10.1.124.3      microk8s003.lab.example.com   <none>           <none>
+
+$ kubectl get svc -n monitoring
+NAME                    TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE
+prometheus-operator     ClusterIP   None             <none>        8443/TCP                     9m50s
+alertmanager-main       ClusterIP   10.152.183.235   <none>        9093/TCP                     9m33s
+blackbox-exporter       ClusterIP   10.152.183.230   <none>        9115/TCP,19115/TCP           9m33s
+grafana                 ClusterIP   10.152.183.78    <none>        3000/TCP                     9m32s
+kube-state-metrics      ClusterIP   None             <none>        8443/TCP,9443/TCP            9m32s
+node-exporter           ClusterIP   None             <none>        9100/TCP                     9m31s
+prometheus-adapter      ClusterIP   10.152.183.41    <none>        443/TCP                      9m31s
+prometheus-k8s          ClusterIP   10.152.183.133   <none>        9090/TCP                     9m31s
+alertmanager-operated   ClusterIP   None             <none>        9093/TCP,9094/TCP,9094/UDP   7m55s
+prometheus-operated     ClusterIP   None             <none>        9090/TCP                     7m55s
+
+
+
 
